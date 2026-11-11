@@ -1,5 +1,7 @@
 # Arachne Flow
 
+![Arachne Flow — a comic-style weaver connecting workflow nodes](docs/banner.png)
+
 Arachne Flow (`flowcanvas`) adds a visual workspace to Hermes Desktop where you connect tools, AI models, and media files like a wiring diagram — and run the whole pipeline from the canvas, from chat, or on a schedule.
 
 ## What you can build
@@ -36,9 +38,32 @@ The local validator reports that SDK-surface warning; the project's existing gat
 Hermes catalog-maintainer approval. The bridge requires catalog review. Offline tests and the isolated
 browser harness do not establish that every visible action works on every OS or provider.
 
-Screenshots in `docs/screenshots/` are illustrative captures of the real plugin UI in an isolated browser
-harness with synthetic tool results, not receipts for live provider calls. No personal workflows,
+The gallery below uses frames from recorded clips of the real plugin UI in an isolated filming setup.
+Media examples replay previously generated assets; these screenshots are not receipts for new provider
+calls or a full native Desktop acceptance test. The Build dialog edits a graph; it does not execute it.
+Older illustrative harness screenshots also remain in `docs/screenshots/` but are not used in this gallery.
+The banner is AI-generated artwork, not an official Nous logo or endorsement. No personal workflows,
 credentials, recipient authorizations, development history, or demo recordings are included.
+
+## On the canvas
+
+### Image workflows and visible cache hits
+
+Connect prompts, image generation and text outputs; inspect the cached steps directly on the graph.
+
+![Image-and-text workflow with generated media and visible cache badges](docs/screenshots/workflow-image-cache.png)
+
+### Inspect a 3D result
+
+Open a saved GLB result in the built-in viewer to rotate, pan and zoom.
+
+![A jade dragon GLB open in the built-in 3D viewer](docs/screenshots/3d-viewer.png)
+
+### Build with Hermes
+
+Describe the workflow you want. Build edits the graph; Run executes it.
+
+![Build with Hermes dialog with a workflow description and model selection](docs/screenshots/build-with-hermes.png)
 
 ## Your first flow in two minutes
 
