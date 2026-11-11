@@ -364,6 +364,8 @@ def reset(scenario: str) -> dict:
         model = next(n for n in flow["nodes"] if n["id"] == refs["m3d"])
         side["y"] = front["y"] + 440
         model["x"], model["y"] = front["x"] + 420, front["y"]
+        for node in (front, side):   # as if chosen with Browse… in the canvas (engine/picks.py)
+            node["params"][E.picks.PARAM] = {node["params"]["path"]: E.picks.mint(env, flow["id"], node["id"], node["params"]["path"])}
         flow = E.store.save_flow(env, flow, create=True)
         return {"flow_id": flow["id"], "select": refs["m3d"], "run_id": None}
     if scenario == "model_settings":

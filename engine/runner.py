@@ -26,6 +26,7 @@ from . import executors as X
 from . import graph as G
 from . import media as M
 from . import nodes as N
+from . import picks as P
 from . import store as S
 from . import timings as T
 from . import types as ptypes
@@ -693,6 +694,7 @@ def apply_inputs(flow: dict, inputs: dict) -> dict:
             raise RunError(f"no input node {key!r}; inputs are: {', '.join(names) or 'none'}")
         for n in targets:
             n.setdefault("params", {})[_INPUT_PARAM[n["type"]]] = value
+            P.drop(n)   # an input set by the caller (agent, cron) is never a canvas pick (catalog review)
     return flow
 
 
@@ -779,6 +781,9 @@ class _Execution:
         self.max_parallel = max(1, int(_config_number(env, "max_parallel", DEFAULT_MAX_PARALLEL)))
         self.timeout = _config_number(env, "node_timeout_s", DEFAULT_NODE_TIMEOUT_S)
         self.out_dir = S.outputs_dir(env, self.run["id"])
+        # Files the user picked in the canvas for this flow; any other local file outside the uploads/outputs
+        # folders is never inlined into a tool argument (catalog review).
+        self.approved = P.flow_picks(env, self.run["flow_id"], flow)
         self._last_save = 0.0
         self.slots = None                      # asyncio.Semaphore(max_parallel), made inside the event loop
         # G11: For each loops. body/collects keep run order (topological); body nodes are run by run_loop.
@@ -942,7 +947,8 @@ class _Execution:
                     self.finish_node(nid, hit, started, "cached")
                     return
             nctx = X.NodeContext(run_id=self.run["id"], node_id=nid, out_dir=self.out_dir,
-                                 flow_id=self.run["flow_id"], timeout_s=float((spec or {}).get("timeout_s") or self.timeout),
+                                 flow_id=self.run["flow_id"], approved=self.approved,
+                                 timeout_s=float((spec or {}).get("timeout_s") or self.timeout),
                                  log=lambda msg: self.set_node(nid, progress=msg))
             async with self.slots:
                 outputs = await X.execute(self.env, node, spec, inputs, nctx)
@@ -1112,7 +1118,8 @@ class _Execution:
                 if hit is not None:
                     return {"status": "cached", "ms": ms(), **_branch(hit)}, hit
             nctx = X.NodeContext(run_id=self.run["id"], node_id=f"{nid}-{index + 1}", out_dir=self.out_dir,
-                                 flow_id=self.run["flow_id"], timeout_s=float((spec or {}).get("timeout_s") or self.timeout),
+                                 flow_id=self.run["flow_id"], approved=self.approved,
+                                 timeout_s=float((spec or {}).get("timeout_s") or self.timeout),
                                  log=lambda msg: self.set_node(nid, progress=f"Item {index + 1}: {msg}"))
             async with self.slots:
                 outputs = await X.execute(self.env, node, spec, inputs, nctx)

@@ -30,6 +30,7 @@ from . import media as M
 from . import messaging as MSG
 from . import nodes as N
 from . import options as O
+from . import picks as PK
 from . import presets as P
 from . import runner as R
 from . import store as S
@@ -99,6 +100,8 @@ def file_payload(path: str, thumb: int = 0) -> dict:
         raise HTTPException(403, "UNC and device paths are not supported; choose a local file")
     if not path or not os.path.isfile(path):
         raise HTTPException(404, "file not found")
+    if M.secret_reason(path):
+        raise HTTPException(403, M.secret_reason(path))
     size = os.path.getsize(path)
     mime = M.mime_for(path)
     kind = M.kind_for(path)
@@ -836,7 +839,7 @@ def _file_node_preview(env, flow_id, query) -> dict:
     path = raw.strip().strip('"')
     out = {"path_param": raw, "path": path, "name": os.path.basename(path), "exists": False, "kind": None,
            "size": None, "data_url": None}
-    if not path or M.blocked_local_path(path):
+    if not path or M.blocked_local_path(path) or M.secret_reason(path):
         return out
     path = os.path.abspath(os.path.expanduser(path))
     if not os.path.isfile(path):
@@ -935,6 +938,16 @@ def _flow_action(env, method, flow_id, action, query, body):
         _emit_changed(env, flow, _origin(body, query))
         refs = {r["ref"]: r["node"] for r in results if isinstance(r, dict) and r.get("ref")}
         return {"flow": flow, "results": results, "refs": refs}
+    if action == "file-pick":
+        # The canvas calls this right after the user chose a file in the native dialog (Browse…). It mints the
+        # pick the run checks (picks.py); the canvas stores it in the node's picked_files with its next save.
+        S.get_flow(env, flow_id)
+        node_id, path = body.get("node_id"), body.get("path")
+        try:
+            token = PK.mint(env, flow_id, node_id, path)
+        except (ValueError, M.MediaError) as exc:
+            _bad(str(exc))
+        return {"node_id": node_id, "path": path.strip(), "token": token}
     if action == "messaging-optin":
         node_id = body.get("node_id")
         enable = body.get("enable") is True

@@ -27,7 +27,7 @@ SCENARIOS = ("empty", "template", "running", "done", "inspector", "quick", "quic
              "partial", "fresh", "stop", "shortcut", "inspector_error", "tool_swap", "edit_keys",
              "agent_sync", "agent_sync_dirty", "agent_undo", "ask", "ask_none", "shell", "model_picker",
              "tool_options", "llm_info",
-             "lightbox", "lightbox_inspector", "palette", "files", "popout", "popout_fail", "popin", "templates", "generate", "model_settings", "media_inputs", "timings", "logic", "loop", "schedule")
+             "lightbox", "lightbox_inspector", "palette", "files", "popin", "templates", "generate", "model_settings", "media_inputs", "timings", "logic", "loop", "schedule")
 
 
 def overlaps(nodes: list) -> list:
@@ -44,8 +44,7 @@ def probe(scenario: str, port: int, width=1600, height=1000) -> dict:
     seeded = dev_server.reset({"model_picker": "inspector_llm", "shell": "template", "tool_options": "inspector_3d",
                                "llm_info": "inspector_llm",
                                "lightbox": "done", "lightbox_inspector": "inspector",
-                               "palette": "template", "files": "template", "popout": "template",
-                               "popout_fail": "template", "popin": "template",
+                               "palette": "template", "files": "template", "popin": "template",
                                "templates": "template", "generate": "empty", "schedule": "template",
                                "agent_undo": "template"}.get(scenario, scenario))
     query = {"events": "0", "diag_ms": "4500"}
@@ -71,8 +70,6 @@ def probe(scenario: str, port: int, width=1600, height=1000) -> dict:
             query["inspector"] = "1"
     if scenario == "palette":
         query.update(palette="check", shell="desktop", diag_ms="6500")
-    if scenario in ("popout", "popout_fail"):
-        query.update(popout="fail" if scenario.endswith("fail") else "ok", diag_ms="5000")
     if scenario == "popin":
         query.update(popin="1", diag_ms="5500", shell="desktop")
     if scenario == "templates":
@@ -486,7 +483,7 @@ def check_media_inputs(m: dict, query_pick: str, calls: list, run_record: dict) 
 
 
 def check_popout(scenario: str, p: dict, flow_id: str) -> list:
-    """G4: the header button calls openWindow once and leaves a fresh hand-off; the new window takes it."""
+    """G4: a window that finds a fresh hand-off shows that flow as an Arachne Flow window (no pop-out button)."""
     if not p:
         return ["popout probe did not run"]
     problems = []
@@ -494,7 +491,7 @@ def check_popout(scenario: str, p: dict, flow_id: str) -> list:
         problems.append(f"{scenario}: flow not shown ({p.get('nodes')} nodes)")
     if scenario == "popin":
         if p.get("button"):
-            problems.append("popin: 'Open in new window' shows without the Desktop bridge")
+            problems.append("popin: an 'Open in new window' button is shown")
         if p.get("handoffBefore") is not None or (p.get("navigated") or [None])[0] != "/flowcanvas" \
                 or p.get("flowName") != "Prompt to 3D":
             problems.append(f"popin: hand-off not taken once / wrong flow: {p}")
@@ -507,21 +504,6 @@ def check_popout(scenario: str, p: dict, flow_id: str) -> list:
             problems.append(f"popin: header not a drag area clear of the window buttons: {f}")
         if a.get("flag") is not None or a.get("session") is not None or (a.get("root") or {}).get("y", 0) < 6:
             problems.append(f"popin: 'Show Hermes' did not return to the normal page: {a}")
-        return problems
-    if not p.get("button") or p.get("calls") != [None]:
-        problems.append(f"{scenario}: button/openWindow call: button={p.get('button')} calls={p.get('calls')}")
-    notice = p.get("notice") or ""
-    if scenario == "popout":
-        h = p.get("handoff") or {}
-        if not isinstance(h, dict) or h.get("flowId") != flow_id or not (0 <= (p.get("fresh") or -1) < 5000):
-            problems.append(f"popout: hand-off {h!r} (want flowId={flow_id}, fresh)")
-        if "new window" not in notice:
-            problems.append(f"popout: notice {notice!r}")
-    else:
-        if p.get("handoff") not in (None, "missing"):
-            problems.append(f"popout_fail: hand-off not cleared: {p.get('handoff')!r}")
-        if "no window today" not in notice:
-            problems.append(f"popout_fail: notice {notice!r}")
     return problems
 
 
@@ -826,7 +808,7 @@ def main() -> int:
             problems += check_lightbox(d.get("lightbox") or [])
         if s == "palette":
             problems += check_palette(d.get("palette") or {})
-        if s in ("popout", "popout_fail", "popin"):
+        if s == "popin":
             problems += check_popout(s, d.get("popout") or {}, d.get("flow") or "")
         if s == "templates":
             problems += check_templates(d.get("templates") or {})

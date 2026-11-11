@@ -309,6 +309,10 @@ class MediaConversionTest(unittest.TestCase):
         self.remote = M.make_media(self.local_path, kind="image", source="https://example.com/remote.png")
 
     def test_to_arg_maps_local_paths_lists_and_remote_urls(self):
+        with M.approved([self.local_path]):   # as if picked with Browse… in the canvas
+            self._to_arg_maps_local_paths_lists_and_remote_urls()
+
+    def _to_arg_maps_local_paths_lists_and_remote_urls(self):
         self.assertTrue(M.to_arg(self.local_path, "imageDataUrl").startswith("data:image/png;base64,"),
                         "a local path for an imageDataUrl becomes a data URL")
         self.assertEqual(M.to_arg(self.remote, "imageUrl"), "https://example.com/remote.png")
@@ -321,6 +325,10 @@ class MediaConversionTest(unittest.TestCase):
                          [M.data_url(local_path), M.data_url(remote_path)])
 
     def test_coerce_media_list_inlines_local_files_and_keeps_remote_urls(self):
+        with M.approved([self.local_path]):   # as if picked with Browse… in the canvas
+            self._coerce_media_list_inlines_local_files_and_keeps_remote_urls()
+
+    def _coerce_media_list_inlines_local_files_and_keeps_remote_urls(self):
         values = E.options._coerce([self.local_path, "https://example.com/remote.png"], "media_list", "reference_images")
         self.assertEqual(len(values), 2)
         self.assertTrue(values[0].startswith("data:image/png;base64,"), "a picked file becomes a data URL")

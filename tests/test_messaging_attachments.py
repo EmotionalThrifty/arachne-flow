@@ -10,6 +10,7 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
+import helpers
 from test_messaging import E, api, armed, make_env, run, saved_flow
 
 
@@ -193,6 +194,7 @@ class AttachmentTest(unittest.TestCase):
         flow = E.graph.new_flow()
         flow.update(original)
         flow = E.store.save_flow(env, flow, create=True)
+        flow = helpers.pick_file(E, env, flow, 'n_000001', video)   # even a file the user picked in the canvas
         enabled = api(env, flow['id'], {'node_id': 'n_000003', 'enable': True, 'allow_attachments': True})['flow']
         result = E.runner.run_sync(env, enabled['id'])
         self.assertEqual(result['status'], 'error', result)

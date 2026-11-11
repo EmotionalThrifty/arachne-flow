@@ -95,8 +95,9 @@ class UntrustedMediaTest(unittest.TestCase):
         picked = secret_file()
         flow = self.flow([{"op": "add_node", "ref": "a", "type": "input.file", "title": "Photo",
                            "params": {"path": picked}}])
-        run = R.run_sync(self.env, flow["id"], timeout_s=10)
         nid = flow["nodes"][0]["id"]
+        flow = helpers.pick_file(E, self.env, flow, nid, picked)   # chosen with Browse… in the canvas
+        run = R.run_sync(self.env, flow["id"], timeout_s=10)
         self.assertEqual(self.media(run, nid, "file")["path"], os.path.abspath(picked))
 
 

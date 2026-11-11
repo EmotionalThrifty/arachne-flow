@@ -164,8 +164,16 @@ class ExecutorTest(unittest.TestCase):
         path = os.path.join(self.out, "in.png")
         with open(path, "wb") as fh:
             fh.write(PNG)
-        out = self.exec({"type": "input.file", "params": {"path": path}})
+        env = E.env.Env(state={})
+        nctx = X.NodeContext(run_id="r_test", node_id="n_abcdef", out_dir=self.out, flow_id="f_test", timeout_s=5,
+                             log=lambda msg: None)
+        spec = self.spec("input.file")
+        picked = {"id": "n_abcdef", "type": "input.file",
+                  "params": {"path": path, "picked_files": {path: E.picks.mint(env, "f_test", "n_abcdef", path)}}}
+        out = run(X.execute(env, picked, spec, {}, nctx))
         self.assertEqual(out["file"]["$media"]["kind"], "image")
+        with self.assertRaisesRegex(X.NodeError, "not picked"):   # a path nobody picked in the canvas
+            run(X.execute(env, {"id": "n_abcdef", "type": "input.file", "params": {"path": path}}, spec, {}, nctx))
         with self.assertRaises(X.NodeError):
             self.exec({"type": "input.file", "params": {"path": path + ".missing"}})
 

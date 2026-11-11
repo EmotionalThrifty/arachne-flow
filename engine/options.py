@@ -554,10 +554,10 @@ def _coerce(value, kind, name=""):
                     if "url" in name.lower() and str(meta.get("source", "")).startswith("https://"):
                         converted.append(meta["source"])
                     else:
-                        converted.append(M.data_url(meta["path"]))
+                        converted.append(M.inline_local(meta["path"], engine_value=True))
                 elif isinstance(item, str) and item and not item.startswith(("data:", "http://", "https://")) \
                         and os.path.isfile(item):
-                    converted.append(M.data_url(item))
+                    converted.append(M.inline_local(item))
                 else:
                     converted.append(item)
             except (M.MediaError, OSError, KeyError) as exc:

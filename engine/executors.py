@@ -39,6 +39,7 @@ class NodeContext:
     node_id: str
     out_dir: str                              # outputs/<run_id>
     flow_id: Optional[str] = None             # required for recipient-scoped messaging consent
+    approved: frozenset = frozenset()         # real paths the user picked in this flow's canvas (picks.py)
     timeout_s: float = DEFAULT_TIMEOUT_S
     allow_download: bool = True
     # Required on purpose: a silent no-op default hid every job status line (E-1).
@@ -338,10 +339,29 @@ async def _input_file(env, node, spec, inputs, nctx):
         raise NodeError("choose a file path")
     kind = params.get("kind") or "auto"
     try:
+        M.require_local_path(path)
+        M.require_readable(path)
+        _require_picked(env, node, path, nctx)
         value = M.from_local(path, copy=False, kind=None if kind == "auto" else kind)
     except M.MediaError as exc:
         raise NodeError(str(exc)) from None
     return {"file": value}
+
+
+def _require_picked(env, node, path, nctx) -> None:
+    """Catalog review: a File node reads a path only when the user picked it for this node in the canvas or it
+    lies in Arachne Flow's uploads folder (canvas drops). A path set by the agent (flow_apply, flow_run inputs)
+    or a template is refused before any tool runs."""
+    from . import picks as P
+    from . import store as S
+    real = M.real_path(path)
+    uploads = M.real_path(S.uploads_dir(env)).rstrip("\\/")
+    if real.startswith(uploads + os.sep):
+        return
+    if real in P.node_picks(env, getattr(nctx, "flow_id", None), node):
+        return
+    raise NodeError(f"{path} was not picked in the canvas. Choose it with Browse… or drop it onto the canvas "
+                    "(paths set by the agent are accepted only inside Arachne Flow's uploads folder)")
 
 
 async def _text_template(env, node, spec, inputs, nctx):
@@ -741,15 +761,19 @@ async def execute(env, node: dict, spec: dict, inputs: dict, nctx: NodeContext) 
     """Run one node. Raises NodeError for user-facing failures."""
     if spec is None:
         raise NodeError(f"unknown node type {node.get('type')!r} (tool missing or blocked?)")
-    handler = BUILTIN.get(node.get("type"))
-    if handler is not None:
-        return await handler(env, node, spec, inputs, nctx)
-    if spec.get("kind") == "tool":
-        return await run_tool_node(env, node, spec, inputs, nctx)
-    if spec.get("kind") == "preset":
-        from . import presets
-        return await presets.execute(env, node, spec, inputs, nctx)
-    raise NodeError(f"no executor for node type {node.get('type')!r}")
+    token = M.set_approved(getattr(nctx, "approved", None) or (), roots=(getattr(nctx, "out_dir", None),))
+    try:
+        handler = BUILTIN.get(node.get("type"))
+        if handler is not None:
+            return await handler(env, node, spec, inputs, nctx)
+        if spec.get("kind") == "tool":
+            return await run_tool_node(env, node, spec, inputs, nctx)
+        if spec.get("kind") == "preset":
+            from . import presets
+            return await presets.execute(env, node, spec, inputs, nctx)
+        raise NodeError(f"no executor for node type {node.get('type')!r}")
+    finally:
+        M.reset_approved(token)
 
 
 def out_dir_for(env, run_id: str) -> str:

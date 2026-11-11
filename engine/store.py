@@ -702,6 +702,7 @@ def template_from_flow(flow: dict, clear_inputs: bool = False) -> dict:
                 params = node.get("params") if isinstance(node.get("params"), dict) else {}
                 node["params"] = {**params, **reset}
         node["params"] = graph.messaging_params(node, copy_target=True)
+        node["params"].pop("picked_files", None)   # picks belong to one flow and node (picks.py), never shared
     viewport = flow.get("viewport") if isinstance(flow.get("viewport"), dict) else {"x": 0, "y": 0, "zoom": 1}
     return {"nodes": nodes, "edges": copy.deepcopy([e for e in flow.get("edges") or [] if isinstance(e, dict)]),
             "viewport": dict(viewport)}

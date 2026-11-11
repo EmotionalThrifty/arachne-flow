@@ -241,10 +241,10 @@ def _remote_or_inline(value):
         M.require_local_path(meta.get("path"))
         if str(meta.get("source", "")).startswith("https://"):
             return meta["source"]
-        return M.data_url(meta["path"])
+        return M.inline_local(meta["path"], engine_value=True)
     if isinstance(value, str) and value and not value.startswith(("data:", "https://", "http://")) \
             and os.path.isfile(value):
-        return M.data_url(value)
+        return M.inline_local(value)
     return value
 
 
@@ -252,10 +252,10 @@ def _inline(value):
     if isinstance(value, str):
         M.require_local_path(value)
     if ptypes.is_media(value):
-        return M.data_url(value["$media"]["path"])
+        return M.inline_local(value["$media"]["path"], engine_value=True)
     if isinstance(value, str) and value and not value.startswith(("data:", "https://", "http://")) \
             and os.path.isfile(value):
-        return M.data_url(value)
+        return M.inline_local(value)
     return value
 
 

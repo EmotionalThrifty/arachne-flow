@@ -661,4 +661,11 @@ def apply_ops(flow: dict, ops, types_by_name: dict = None):
             raise
         except (ValueError, TypeError, KeyError) as exc:
             raise OpError(i, f"{kind}: {exc}") from None
+    # Ops come from the agent (flow_apply), Build with Hermes or the ops route, never from a canvas pick:
+    # every node they add or change loses its picked files (catalog review), so its paths need a new pick.
+    from . import picks
+    before = {n.get("id"): n for n in flow.get("nodes") or [] if isinstance(n, dict)}
+    for node in out["nodes"]:
+        if isinstance(node, dict) and before.get(node.get("id")) != node:
+            picks.drop(node)
     return out, results

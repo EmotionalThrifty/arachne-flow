@@ -1544,7 +1544,6 @@ const HEADER_TIPS = {
   generate: headerTip('generate', 'Build with Hermes', ['Describe a new flow or a change in your words.', 'Hermes builds and validates it without running anything.']),
   ask: headerTip('ask', 'Discuss in chat', ['Starts a message about this flow in your chat composer; you finish and send it.', 'Nothing is changed or run.']),
   unfocus: headerTip('unfocus', 'Show Hermes', ['Shows the rest of Hermes in this window (sidebar, chats).']),
-  popout: headerTip('popout', 'Open in new window', ['Opens this flow in a second window, e.g. on another screen.', 'Edits stay in sync.']),
   stop: headerTip('stop', 'Stop', ['Stops the run. Running steps are cancelled; finished results stay.']),
   fresh: headerTip('fresh', 'Fresh run', ['Runs every step again and ignores cached results.'], ['Ctrl', 'Shift', 'Enter']),
   run: headerTip('run', 'Run', ['Runs the flow. Unchanged steps reuse their cached result.', 'Shift+click ignores the cache.'], ['Ctrl', 'Enter'])
@@ -1646,10 +1645,8 @@ function indexTypes(payload) {
 }
 
 // ---------------------------------------------------------------- second window (G4)
-// The ONE use of the raw Desktop bridge (approved by the maintainer 2026-11-06): open a peer app window. The SDK
-// has no verb for it. Keep the bridge on this single line: scripts/check.sh allows exactly one validator warning,
-// and only on the line that names openWindow. Everything else goes through ctx.os / ctx.storage / host.navigate.
-const peerWindowOpener = () => { const bridge = typeof window === 'undefined' ? null : window.hermesDesktop; return bridge && typeof bridge.openWindow === 'function' ? () => bridge.openWindow() : null }
+// The pop-out button was removed for the plugin catalog (SDK surface only; the SDK has no window verb). What stays
+// is the receiving side: a window that finds a fresh hand-off in shared plugin storage shows that flow.
 const POPOUT_KEY = 'popout'
 const POPOUT_TTL_MS = 20000
 // A window opened for Arachne Flow shows ONLY Arachne Flow: the page covers the whole window (our own markup,
@@ -1796,6 +1793,28 @@ function checkDropFile(file, extKinds = {}, maxBytes = UPLOAD_MAX_BYTES) {
   }
   return { ok: true, kind: extKinds[ext] }
 }
+/** The node's picked_files after the user picked `path` (signed `token`): keeps only picks the node still names
+ *  in a setting, plus the new one. Picks prove a canvas choice to the backend (engine/picks.py). Pure, tested. */
+function pickedFilesWith(params, path, token) {
+  const named = new Set()
+  const walk = (v, depth = 0) => {
+    if (depth > 4) return
+    if (typeof v === 'string') {
+      named.add(v.trim())
+      if (v.trim().startsWith('[')) {
+        try { walk(JSON.parse(v), depth + 1) } catch { /* a plain text, not a stored media list */ }
+      }
+    } else if (Array.isArray(v)) v.forEach((x) => walk(x, depth + 1))
+  }
+  const own = params || {}
+  for (const [k, v] of Object.entries(own)) if (k !== PICKED_FILES) walk(v)
+  const out = {}
+  const old = own[PICKED_FILES] && typeof own[PICKED_FILES] === 'object' ? own[PICKED_FILES] : {}
+  for (const [p, t] of Object.entries(old)) if (named.has(p) && typeof t === 'string') out[p] = t
+  if (path && token) out[path] = token
+  return out
+}
+const PICKED_FILES = 'picked_files'
 /** Where dropped files land: one node per file, side by side from the drop point. Pure, tested. */
 const dropSpots = (n, x, y) => range(n).map((i) => ({ x: x + i * (NODE_W + 40), y }))
 /** File nodes for already stored files, placed from (x, y) without overlapping. Pure, tested. */
@@ -2092,6 +2111,8 @@ function makeApi(ctx) {
       return call('POST', 'uploads', { name, data_url: await readAsDataUrl(file) }, 180000)
     },
     fileNode: (flowId, node, thumb) => call('GET', `flows/${encodeURIComponent(flowId)}/file?${qs({ node, thumb })}`, undefined, 30000),
+    // A file the user just chose with Browse…: the backend signs (flow, node, path) so a run accepts it (picks.py).
+    filePick: (flowId, nodeId, path) => call('POST', `flows/${encodeURIComponent(flowId)}/file-pick`, { node_id: nodeId, path, origin: 'ui' }),
     media: (runId, node, port, thumb, index) =>
       call('GET', `runs/${encodeURIComponent(runId)}/media?${qs({ node, port, thumb, index })}`, undefined, 60000),
     runValue: (runId, node, port, offset, limit, version, field = 'outputs') => {
@@ -3352,10 +3373,6 @@ function Header(p) {
       className: 'fc-btn ghost icon', 'data-fc-unfocus': '1', 'aria-label': 'Show Hermes in this window',
       title: tt('unfocus'), onClick: p.onShowHermes
     }, h(Icon, { name: 'layout' }))) : null,
-    f && p.onPopOut ? tb('popout', h('button', {
-      className: 'fc-btn ghost icon', 'data-fc-popout': '1', 'aria-label': 'Open in new window',
-      title: tt('popout'), onClick: p.onPopOut
-    }, h(Icon, { name: 'multiple-windows' }))) : null,
     f ? h('span', { className: 'fc-sep' }) : null,
     f && running ? tb('stop', h('button', { className: 'fc-btn danger', title: tt('stop'), onClick: p.onStop }, h(Icon, { name: 'debug-stop' }), 'Stop')) : null,
     f && !running ? tb('fresh', h('button', { className: 'fc-btn', title: tt('fresh'), disabled: !f.nodes.length, onClick: () => p.onRun({ fresh: true }) },
@@ -6294,7 +6311,7 @@ function NodePanel(p) {
         types,
         onChange: (v) => p.onUpdateNode(node.id, { params: { [f.name]: v } }, `p:${node.id}:${f.name}`),
         onChangeMany: (patch) => p.onUpdateNode(node.id, { params: patch }),
-        onBrowse: p.onPickFile || null,
+        onBrowse: p.onPickFile ? (kind) => p.onPickFile(kind, node.id) : null,
         modelField: modelFields[f.name],
         modelName,
         note: ms && f.name === ms.param ? modelNote : imageLimits[f.name] ? imageLimits[f.name].note : null
@@ -6316,7 +6333,7 @@ function NodePanel(p) {
           return h(ParamField, {
             key: `x:${x.name}`, spec: xs, value: params[x.name], params, api: p.api, nodeType: node.type, types,
             onChange: (v) => p.onUpdateNode(node.id, { params: { [x.name]: v } }, `p:${node.id}:${x.name}`),
-            onBrowse: p.onPickFile || null,
+            onBrowse: p.onPickFile ? (kind) => p.onPickFile(kind, node.id) : null,
             modelField: xf, modelName
           })
         })) : null,
@@ -7497,22 +7514,6 @@ function FlowCanvasPage({ ctx }) {
     loadedRef.current = null
     latest.current.persist()
   }
-  const popOut = async () => {
-    const open = peerWindowOpener()
-    const current = flowRef.current
-    if (!open || !current) return
-    await latest.current.persist() // the new window loads the flow from disk
-    // `from` names this window: only a different window may take the hand-off (U-14).
-    sset(POPOUT_KEY, { flowId: current.id, at: Date.now(), from: windowIdGet() })
-    try {
-      const res = await open()
-      if (res && res.ok === false) throw new Error(res.error || 'the window did not open')
-      notify('Opened in a new window — edits in either window stay in sync.', 'ok', 3500)
-    } catch (err) {
-      sset(POPOUT_KEY, null)
-      notify(`Could not open a new window: ${parseRestError(err).message}`, 'error')
-    }
-  }
   const scheduleFlow = async (opts) => {
     const f = flowRef.current
     if (!f) return
@@ -7756,14 +7757,33 @@ function FlowCanvasPage({ ctx }) {
     setSelectedEdge(null)
   }
   // ---- files (G3): Browse… through ctx.os (one file per dialog), drops through the upload route
-  const pickFile = async (kind) => {
+  // A picked file is signed for (flow, node, path) and kept in the node's picked_files: the backend runs a local file
+  // outside the uploads folder only with that pick, and drops it whenever the agent edits the node.
+  const confirmPick = async (nodeId, path) => {
+    const current = flowRef.current
+    if (!current || !nodeId || !path) return
+    try {
+      const res = await api.filePick(current.id, nodeId, path)
+      edit((f) => {
+        const n = f.nodes.find((x) => x.id === nodeId)
+        if (!n) return f
+        return updateNode(f, nodeId, { params: { [PICKED_FILES]: pickedFilesWith(n.params, res.path || path, res.token) } }, typesRef.current.byName)
+      }, `p:${nodeId}:${PICKED_FILES}`)
+    } catch (err) {
+      notify(`This file cannot be used: ${parseRestError(err).message}`, 'error')
+    }
+  }
+  const pickFile = async (kind, nodeId) => {
     const os = ctx && ctx.os
     if (!os || typeof os.pickOpenPath !== 'function') return null
+    let picked = null
     try {
-      return await os.pickOpenPath({ title: `Choose ${kind && kind !== 'auto' ? `an ${kind}` : 'a'} file`, filters: fileFilters(kind, typesRef.current.extKinds) })
+      picked = await os.pickOpenPath({ title: `Choose ${kind && kind !== 'auto' ? `an ${kind}` : 'a'} file`, filters: fileFilters(kind, typesRef.current.extKinds) })
     } catch {
       return null
     }
+    if (picked && nodeId) await confirmPick(nodeId, picked)
+    return picked
   }
   const addFileNodes = (files, x, y) => {
     const current = flowRef.current
@@ -8136,7 +8156,8 @@ function FlowCanvasPage({ ctx }) {
           // room for a full image preview (~250 px) to keep the new node clear of it
           const el = rootRef.current && rootRef.current.querySelector(`[data-fc-node="${id}"]`)
           const height = Math.max(el ? el.offsetHeight : 0, heightsRef.current[id] || 0, FILE_NODE_MIN_H)
-          addFileNodes(files, n.x, n.y + height + 40)
+          const added = addFileNodes(files, n.x, n.y + height + 40)
+          for (const node of added) confirmPick(node.id, node.params && node.params.path)   // picked with Browse…
         }
       }) : null)
   }
@@ -8171,7 +8192,6 @@ function FlowCanvasPage({ ctx }) {
       onGenerate: () => dispatchGeneration({ type: 'open' }),
       generationBusy: generation.busy,
       onAsk: askHermes,
-      onPopOut: peerWindowOpener() && !focusWin ? popOut : null,
       onShowHermes: focusWin ? leaveFocusWindow : null,
       onUndo: () => setDoc(undoDoc),
       onRedo: () => setDoc(redoDoc),
@@ -8296,7 +8316,7 @@ const _internals = {
   canConnect, connect, disconnect, updateNode, cloneSubgraph, insertSubgraph, defaultParams, freeSpot, applyEdit,
   disarmCopiedNode, messagingArmed, messagingScope,
   undoDoc, redoDoc, applyRemote, mergeRun, mergeNodeState, generateInitial, generateReducer, generationBody, generationSummary, filterTypes, groupByCategory, toolChoices, changeNodeType, nodesBox, placeSubgraph, placeInView, pruneSelection, askPrompt, draftToComposer, rememberType, resolveRecentTypes, formatMs, ago, parseRestError, findMedia, runMediaList, nodeOutputItems, MiniThumb, lightboxZoom, previewString,
-  fileFilters, checkDropFile, dropSpots, fileNodes, baseName, formatBytes, popoutFlow, takePopout, POPOUT_KEY, FOCUS_WINDOW_KEY, SHARED,
+  fileFilters, checkDropFile, dropSpots, fileNodes, pickedFilesWith, baseName, formatBytes, popoutFlow, takePopout, POPOUT_KEY, FOCUS_WINDOW_KEY, SHARED,
   // small review findings (E0): per-window hand-off ownership, boot navigation retries, copy feedback
   shouldConsumeHandoff, peekPopout, clearPopout, windowIdGet, WINDOW_ID_KEY, shouldRetryNavigate, clipboardOk,
   splitTemplates, filledInputs,

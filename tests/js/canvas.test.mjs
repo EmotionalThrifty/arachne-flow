@@ -657,6 +657,14 @@ test('fileFilters: kind first, all known types for auto, "All files" always last
   assert.deepEqual(I.fileFilters('auto', {}), [{ name: 'All files', extensions: ['*'] }])
 })
 
+test('pickedFilesWith keeps picks the node still names and adds the new one', () => {
+  const params = { path: 'C:/a.png', images: '["C:/b.png", "https://x/y.png"]', picked_files: { 'C:/a.png': 'ta', 'C:/b.png': 'tb', 'C:/gone.png': 'tg' } }
+  assert.deepEqual(I.pickedFilesWith(params, 'C:/c.png', 'tc'), { 'C:/a.png': 'ta', 'C:/b.png': 'tb', 'C:/c.png': 'tc' })
+  assert.deepEqual(I.pickedFilesWith({}, 'C:/c.png', 'tc'), { 'C:/c.png': 'tc' })
+  assert.deepEqual(I.pickedFilesWith(null, '', ''), {})
+  assert.deepEqual(I.pickedFilesWith({ path: 'C:/a.png', picked_files: 'broken' }, 'C:/a.png', 't'), { 'C:/a.png': 't' })
+})
+
 test('checkDropFile, dropSpots, fileNodes place dropped files as File nodes (G3)', () => {
   const ext = { '.png': 'image', '.wav': 'audio' }
   assert.deepEqual(I.checkDropFile({ name: 'Cat.PNG', size: 10 }, ext, 100), { ok: true, kind: 'image' })

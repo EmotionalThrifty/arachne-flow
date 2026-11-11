@@ -79,12 +79,7 @@ setTimeout(() => {
 const params = new URLSearchParams(location.search)
 const memory = new Map()
 if (params.get('flow')) memory.set('flowId', params.get('flow'))
-// G4: ?popout=ok|fail stubs the Desktop bridge's openWindow (dev only); ?popin=1 boots like the NEW window: the
-// opener's hand-off in storage, no remembered flow of its own.
-if (params.get('popout')) {
-  window.__devOpenWindow = []
-  window.hermesDesktop = { openWindow: async (opts) => { window.__devOpenWindow.push(opts === undefined ? null : opts); return params.get('popout') === 'fail' ? { ok: false, error: 'no window today' } : { ok: true } } }
-}
+// G4: ?popin=1 boots like a window that finds a hand-off in storage, no remembered flow of its own.
 if (params.get('popin') && params.get('flow')) {
   // Desktop's shell sets this on an ancestor: width of the native min/max/close buttons (Windows)
   document.documentElement.style.setProperty('--titlebar-tools-right', '138px')
@@ -877,9 +872,8 @@ if (params.get('files')) {
   })().catch((err) => diag.errors.push('files: ' + (err && err.message || err)))
 }
 
-// G4 browser probe. popout=ok|fail: press "Open in new window", record the bridge call, the hand-off left in
-// storage and the notice. popin=1: this page is the new window — did it take the hand-off and open that flow?
-if (params.get('popout') || params.get('popin')) {
+// G4 browser probe. popin=1: this page found a hand-off — did it take it and open that flow as its own window?
+if (params.get('popin')) {
   const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms))
   ;(async () => {
     for (let i = 0; i < 80 && document.querySelectorAll('[data-fc-node]').length < 7; i++) await sleep(100)
@@ -905,15 +899,7 @@ if (params.get('popout') || params.get('popin')) {
       await sleep(400)
       out.after = { flag: document.querySelector('.fc-root').dataset.fcFocusWindow || null, root: box(document.querySelector('.fc-root')),
         session: sessionStorage.getItem('hermes.plugin.flowcanvas.focusWindow') }
-      return
     }
-    document.querySelector('[data-fc-popout]')?.click()
-    await sleep(600)
-    const handoff = memory.get('popout')
-    out.calls = (window.__devOpenWindow || []).slice()
-    out.handoff = handoff === undefined ? 'missing' : handoff
-    out.fresh = handoff && Number.isFinite(handoff.at) ? Date.now() - handoff.at : null
-    out.notice = document.querySelector('.fc-notice')?.textContent || null
   })().catch((err) => diag.errors.push('popout: ' + (err && err.message || err)))
 }
 

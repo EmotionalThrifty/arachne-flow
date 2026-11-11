@@ -58,3 +58,15 @@ def wait_until(predicate, timeout: float = 5.0, interval: float = 0.01):
         if val or time.monotonic() >= deadline:
             return val
         time.sleep(interval)
+
+
+def pick_file(E, env, flow: dict, node_id: str, path: str) -> dict:
+    """What Browse… in the canvas does: mint a pick for (flow, node, path) and store it with the node (saved).
+    ``E`` is the test's engine package (load_engine())."""
+    token = E.picks.mint(env, flow["id"], node_id, path)
+
+    def mutate(f):
+        for node in f["nodes"]:
+            if node["id"] == node_id:
+                node.setdefault("params", {}).setdefault(E.picks.PARAM, {})[path] = token
+    return E.store.modify_flow(env, flow["id"], mutate)

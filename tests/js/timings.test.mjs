@@ -160,7 +160,7 @@ test('errorTip and tipText', () => {
 })
 
 test('every header button has a tooltip; run and undo name their shortcuts', () => {
-  const ids = ['flows', 'palette', 'inspector', 'undo', 'redo', 'tidy', 'generate', 'ask', 'unfocus', 'popout', 'stop', 'fresh', 'run']
+  const ids = ['flows', 'palette', 'inspector', 'undo', 'redo', 'tidy', 'generate', 'ask', 'unfocus', 'stop', 'fresh', 'run']
   for (const id of ids) {
     const tip = I.HEADER_TIPS[id]
     assert.ok(tip && tip.title && tip.lines.length, id)

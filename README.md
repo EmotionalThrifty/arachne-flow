@@ -33,10 +33,8 @@ Start with the fully local **Local list cleanup** template to avoid provider cal
 
 ### Preview and review status
 
-The optional second-window mode uses one raw `window.hermesDesktop.openWindow()` bridge call.
-The local validator reports that SDK-surface warning; the project's existing gate exception is **not**
-Hermes catalog-maintainer approval. The bridge requires catalog review. Offline tests and the isolated
-browser harness do not establish that every visible action works on every OS or provider.
+The Desktop UI uses only `@hermes/plugin-sdk`; `hermes plugins validate` reports no warnings. Offline tests and the
+isolated browser harness do not establish that every visible action works on every OS or provider.
 
 The gallery below uses frames from recorded clips of the real plugin UI in an isolated filming setup.
 Media examples replay previously generated assets; these screenshots are not receipts for new provider
@@ -88,7 +86,6 @@ It saves the flow and opens a Hermes chat pre-filled with the flow name and ID; 
 | Fit view / Save | `F` / `Ctrl+S` |
 | Box select / Pan / Zoom | `Shift` + drag / `Space` + drag / mouse wheel |
 | Add local file node | Drag a file from your computer onto the canvas (≤ 25 MB) |
-| Open dedicated second window | Window button in the top-right header |
 
 **Run from chat or cron:**
 Use `/flow` to list flows, `/flow run <name|id> [--fresh]` to execute one, `/flow open [name|id]` to open it on the canvas, or `/flow status <run_id>` for the latest state.
@@ -129,6 +126,8 @@ In chat or scheduled jobs, Hermes uses `flow_list`, `flow_get`, `flow_node_types
 - **Background execution and approvals** — Flow tool nodes execute on a background thread via `ctx.dispatch_tool` rather than on the interactive chat turn.
   Under `APPROVAL_MODE=manual`, commands held for interactive approval cannot show a prompt on the canvas and will be denied or time out; inside unattended `cron` runs there is no interactive user at all.
 - **Local files and path boundaries** — `File` nodes read only paths you select with **Browse…** or drop onto the canvas (≤ 25 MB per file, copied into `uploads/`).
+  A **Browse…** pick is signed for that flow, node and file (`picked_files`, HMAC with the local key); a path set by the agent (`flow_apply`, `flow_run` inputs), a template or by typing is accepted only inside `uploads/`. Any agent edit of a node drops its picks, and a copy or template never carries them; pick the file again after such an edit.
+  A text that names a local file is inlined into a tool argument (`*DataUrl`, `*_url`, base64) only for a file you picked or a media file under the folders listed below. Hermes credential stores (`auth.json`, `.anthropic_oauth.json`, `mcp-tokens/`, `vault/`, `browser-profile/` …), any `.env*` file and the plugin's own `messaging-secret` are never read, not even when picked.
   Path traversal (`..`) and Windows UNC or device paths (`\\server\share`, `\\?\`, `\Device\`) are rejected before touching the filesystem.
   Local paths returned inside tool JSON are copied into the run only if they have a media extension inside `<HERMES_HOME>`, `<HERMES_HOME>/plugin-data/flowcanvas/`, or directories listed in `FLOWCANVAS_MEDIA_ROOTS` (`os.pathsep`-separated).
   Prose fields (`content`, `markdown`, `html`, `transcript`, `text`) are never scanned for paths, and `$media` / `$large` keys in untrusted tool or LLM output are defanged (`_$media`, `_$large`).
@@ -136,7 +135,7 @@ In chat or scheduled jobs, Hermes uses `flow_list`, `flow_get`, `flow_node_types
   User regexes in `If` and `Switch` run in an isolated subprocess killed after 0.5 s.
 - **No provider credentials in flows, no telemetry, no update checks** — Provider credentials stay under Hermes control. Flow JSON can contain user text, recipient identifiers and signed send authorizations; do not publish personal flows. The plugin stores a local HMAC key (`messaging-secret`) for consent, not provider credentials.
   The plugin ships no telemetry and never fetches or replaces its own code.
-  The Desktop UI uses only `@hermes/plugin-sdk`, except for a single `window.hermesDesktop.openWindow()` call (no arguments) for the optional second window.
+  The Desktop UI uses only `@hermes/plugin-sdk`.
 - **What leaves your machine** — The plugin itself talks to the network only where your flow does: media downloads from tool output (previous point) and the LLM/MCP providers your nodes call.
   `File` nodes and canvas drops are copied into the run and handed to the tools you wire to them; sending such a file to an external tool (an image to a model provider, for example) transmits it as part of that call, sometimes as a `data:` URL.
   **Build with Hermes** sends your prompt, the node catalog, and the current flow to the active model provider. It never executes the flow or spends credits on tools.

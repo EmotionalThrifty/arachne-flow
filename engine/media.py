@@ -9,6 +9,7 @@ from __future__ import annotations
 import asyncio
 import base64
 import binascii
+import contextvars
 import hashlib
 import logging
 import mimetypes
@@ -254,7 +255,7 @@ def from_local(path: str, out_dir: str = None, stem: str = None, kind: str = Non
     """A local file as media; copied into out_dir unless it already lives there (or copy=False)."""
     require_local_path(path)
     path = os.path.abspath(os.path.expanduser(path))
-    require_local_path(path)
+    require_readable(path)
     if not os.path.isfile(path):
         raise MediaError(f"file not found: {path}")
     if copy and out_dir:
@@ -369,6 +370,142 @@ def local_ref_allowed(path: str, roots=None) -> bool:
         if base and target.startswith(base + os.sep):
             return True
     return False
+
+
+# ----------------------------------------------------------------- read guard (catalog review: model-set paths)
+# Credential stores under Hermes' home and root, mirroring Hermes' own read denylist: never read, whoever names
+# them (agent, template or user). Relative to a Hermes dir; forward slashes are normalized below.
+_CREDENTIAL_FILES = (
+    "auth.json", "auth.lock", ".anthropic_oauth.json", ".env", "webhook_subscriptions.json", "auth/google_oauth.json",
+    "bws_cache.json", "bws_cache.enc.json", "op_cache.json", "photon-sidecar.json",
+    "cache/bws_cache.json", "cache/bws_cache.enc.json", "cache/op_cache.json", "runtime/photon-sidecar.json",
+)
+_CREDENTIAL_DIRS = ("mcp-tokens", "browser-profile", "vault", "webapp", "skills/.hub")
+# Arachne Flow's own consent key (messaging and file picks) and its staging names.
+_OWN_SECRET_NAMES = ("messaging-secret",)
+_OWN_SECRET_PREFIXES = (".messaging-key-",)
+# (real paths the user picked in the canvas for the flow being run, folders of this run's own outputs);
+# set per node by executors.execute.
+_APPROVED = contextvars.ContextVar("flowcanvas_approved_paths", default=(frozenset(), ()))
+
+
+def _hermes_dirs() -> list:
+    home = _hermes_home()
+    dirs = [home]
+    try:
+        from hermes_constants import get_default_hermes_root  # Hermes public surface
+        dirs.append(str(get_default_hermes_root()))
+    except Exception:  # noqa: BLE001 - older Hermes or outside Hermes: derive the root from a profile home
+        pass
+    parent = os.path.dirname(os.path.abspath(os.path.expanduser(home)))
+    if os.path.basename(parent).lower() == "profiles":
+        dirs.append(os.path.dirname(parent))
+    out = []
+    for d in dirs:
+        if d and d not in out:
+            out.append(d)
+    return out
+
+
+def _within(target: str, base: str) -> bool:
+    base = base.rstrip("\\/")
+    return bool(base) and (target == base or target.startswith(base + os.sep))
+
+
+def secret_reason(path):
+    """Why ``path`` must never be read, or None. Lexical name checks first, then the resolved path."""
+    if not path:
+        return None
+    if blocked_local_path(path):
+        return "UNC and device paths are not supported; choose a local file"
+    raw = os.fsdecode(os.fspath(path))
+    target = _real(raw)
+    for name in {os.path.basename(raw.rstrip("\\/")).lower(), os.path.basename(target).lower()}:
+        if name.startswith(".env"):
+            return ".env files are never read by Arachne Flow"
+        if name in _OWN_SECRET_NAMES or name.startswith(_OWN_SECRET_PREFIXES):
+            return "this is Arachne Flow's consent key"
+    for home in _hermes_dirs():
+        try:
+            base = _real(home)
+        except (OSError, ValueError, MediaError):
+            continue
+        for rel in _CREDENTIAL_FILES:
+            if target == os.path.normcase(os.path.normpath(os.path.join(base, *rel.split("/")))):
+                return "this is a Hermes credential store"
+        for rel in _CREDENTIAL_DIRS:
+            if _within(target, os.path.normcase(os.path.normpath(os.path.join(base, *rel.split("/"))))):
+                return "this is inside a Hermes credential folder"
+    return None
+
+
+def require_readable(path):
+    """Raise MediaError for paths Arachne Flow never reads (credential stores, ``.env*``, its own key)."""
+    reason = secret_reason(path)
+    if reason:
+        raise MediaError(f"refusing {path}: {reason}")
+    return path
+
+
+def real_path(path: str) -> str:
+    return _real(path)
+
+
+def set_approved(paths, roots=()):
+    """Make ``paths`` (files the user picked in this flow) and engine media under ``roots`` (this run's output
+    folder) sendable for the current node; returns a reset token for ``reset_approved``."""
+    real = frozenset(_real(p) for p in paths if p and not blocked_local_path(p))
+    dirs = tuple(_real(r) for r in roots if r and not blocked_local_path(r))
+    return _APPROVED.set((real, dirs))
+
+
+def reset_approved(token) -> None:
+    _APPROVED.reset(token)
+
+
+class approved:
+    """``with M.approved([path]):`` — the same as a canvas pick, for code and tests outside a run."""
+
+    def __init__(self, paths, roots=()):
+        self.paths, self.roots, self.token = list(paths), list(roots), None
+
+    def __enter__(self):
+        self.token = set_approved(self.paths, self.roots)
+        return self
+
+    def __exit__(self, *exc):
+        reset_approved(self.token)
+        return False
+
+
+def _engine_dirs() -> tuple:
+    from . import store
+    root = store.data_dir(None)
+    return tuple(os.path.join(root, sub) for sub in ("uploads", "outputs", "cache"))
+
+
+def may_send(path: str, engine_value: bool = False) -> bool:
+    """A local file may leave the machine inside a tool argument only when it is not a secret and is either picked
+    or dropped by the user in this flow, an engine media value under Arachne Flow's uploads/outputs/cache, or a
+    media file under Hermes' or Arachne Flow's folders (``local_ref_allowed``)."""
+    if not path or secret_reason(path):
+        return False
+    target = _real(path)
+    picked, run_dirs = _APPROVED.get()
+    if target in picked:
+        return True
+    if engine_value and any(_within(target, d) for d in (*run_dirs, *(_real(d) for d in _engine_dirs()))):
+        return True
+    return local_ref_allowed(path)
+
+
+def inline_local(path: str, engine_value: bool = False, max_bytes: int = None) -> str:
+    """``data_url`` for a local file a tool argument names, after the read guard and ``may_send``."""
+    require_readable(path)
+    if not may_send(path, engine_value=engine_value):
+        raise MediaError(f"refusing to send {path}: a local file outside Arachne Flow's uploads and outputs must be "
+                         "picked with Browse… or dropped on the canvas by you")
+    return data_url(path) if max_bytes is None else data_url(path, max_bytes)
 
 
 def ingest(ref: str, out_dir: str, stem: str, allow_download: bool = True, roots=None) -> dict:
@@ -494,7 +631,7 @@ def extract_media(result, out_dir: str, stem: str, allow_download: bool = True,
 # ----------------------------------------------------------------- media -> tool argument
 
 def data_url(path: str, max_bytes: int = MAX_DATA_URL_BYTES) -> str:
-    require_local_path(path)
+    require_readable(path)
     size = os.path.getsize(path)
     if size > max_bytes:
         raise MediaError(f"file too large for a data URL ({size} bytes)")
@@ -515,17 +652,16 @@ def to_arg(value, param_name: str = ""):
     inline = any(k in name for k in ("dataurl", "data_url", "b64", "base64"))
     if isinstance(value, str) and not ptypes.is_media(value):
         require_local_path(value)
-        if inline and value and not value.startswith(("data:", "http://", "https://")) and os.path.isfile(value):
-            return data_url(value)
-        if "url" in name and value and not value.startswith(("data:", "http://", "https://")) and os.path.isfile(value):
-            return data_url(value)
+        if (inline or "url" in name) and value and not value.startswith(("data:", "http://", "https://")) \
+                and os.path.isfile(value):
+            return inline_local(value)   # a text naming a file: only picked/dropped files or Hermes media folders
         return value
     if not ptypes.is_media(value):
         return value
     meta = value["$media"]
     require_local_path(meta.get("path"))
     if inline:
-        return data_url(meta["path"])
+        return inline_local(meta["path"], engine_value=True)
     if "url" in name and str(meta.get("source", "")).startswith("https://"):
         return meta["source"]
     return meta.get("path") or meta.get("source") or ""

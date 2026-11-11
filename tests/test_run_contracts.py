@@ -21,6 +21,7 @@ import helpers
 E = helpers.load_engine()
 R, S, G, N, O, X = E.runner, E.store, E.graph, E.nodes, E.options, E.executors
 A, T = E.api, E.tools
+M = E.media
 
 from fastapi import HTTPException  # noqa: E402
 
@@ -125,7 +126,7 @@ class ModelExtrasFallbackTest(unittest.TestCase):
     def setUp(self):
         self.media_dir = scratch_dir("flowcanvas-media-")
         self.payload = b"\x89PNG\r\n\x1a\nreview-only"
-        path = os.path.join(self.media_dir, "style.png")
+        path = self.path = os.path.join(self.media_dir, "style.png")
         with open(path, "wb") as fh:
             fh.write(self.payload)
         self.data_url = "data:image/png;base64," + base64.b64encode(self.payload).decode("ascii")
@@ -146,14 +147,16 @@ class ModelExtrasFallbackTest(unittest.TestCase):
     def test_cached_model_row_coerces_stored_settings(self):
         env = self.env({})
         env.state["options_cache"] = {LIST: (time.monotonic(), LISTING)}
-        extras = asyncio.run(O.model_extras(env, SPEC, self.node))
+        with M.approved([self.path]):   # the style image was picked in the canvas
+            extras = asyncio.run(O.model_extras(env, SPEC, self.node))
         self.assertEqual(extras, {"style_image": self.data_url, "steps": 12})
         self.assertEqual(env.ctx.calls, [])  # served from cache, no list call
 
     def test_expired_model_row_is_still_used_for_coercion_when_list_fails(self):
         env = self.env({LIST: catalog_down})
         env.state["options_cache"] = {LIST: (time.monotonic() - O.OPTIONS_TTL_S - 30, LISTING)}
-        extras = asyncio.run(O.model_extras(env, SPEC, self.node))
+        with M.approved([self.path]):
+            extras = asyncio.run(O.model_extras(env, SPEC, self.node))
         self.assertEqual(extras, {"style_image": self.data_url, "steps": 12})
         self.assertEqual([name for name, _args in env.ctx.calls], [LIST])
 

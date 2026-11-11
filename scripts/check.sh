@@ -28,7 +28,7 @@ node tests/js/run.mjs || fail=1
 
 if [ "${1:-}" != "--fast" ]; then
   step "hermes plugins validate"
-  # no warnings allowed, except the single approved raw-bridge line for openWindow
+  # no warnings allowed
   hermes plugins validate "$(pwd_host)" --json 2>&1 | node scripts/validate_gate.mjs || fail=1
 fi
 

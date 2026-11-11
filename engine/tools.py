@@ -79,7 +79,7 @@ def _emit_templates_changed(env, template_id, created):
 def _flow_text(flow):
     lines = [f"{flow.get('name') or 'Untitled flow'} ({flow['id']}), revision {flow.get('revision', 0)}"]
     for node in flow.get("nodes") or []:
-        params = node.get("params") or {}
+        params = {k: v for k, v in (node.get("params") or {}).items() if k != "picked_files"}
         suffix = " " + json.dumps(params, ensure_ascii=False, separators=(",", ":")) if params else ""
         lines.append(f"{node['id']} [{node.get('title') or node['type']}] {node['type']}{suffix}")
     for edge in flow.get("edges") or []:
