@@ -1,0 +1,33 @@
+#!/usr/bin/env bash
+# Run a Python script (or -m module) inside Hermes' own runtime: same interpreter and packages as the
+# Desktop backend (fastapi, httpx, PIL, yaml, ...). Usage: bash scripts/hpy path/to/script.py [args]
+# The resolved runtime command is cached OUTSIDE the plugin folder (the catalog scan reads every file).
+set -euo pipefail
+HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+to_unix_path() { if command -v cygpath >/dev/null 2>&1; then cygpath -u "$1"; else printf '%s\n' "$1"; fi; }
+to_host_path() { if command -v cygpath >/dev/null 2>&1; then cygpath -w "$1"; else printf '%s\n' "$1"; fi; }
+default_cache_base() {
+  if [ -n "${LOCALAPPDATA:-}" ]; then printf '%s\n' "$LOCALAPPDATA"
+  elif [ -n "${XDG_CACHE_HOME:-}" ]; then printf '%s\n' "$XDG_CACHE_HOME"
+  else printf '%s\n' "${HOME:-/tmp}/.cache"
+  fi
+}
+CACHE_DIR="$(to_unix_path "${FLOWCANVAS_CACHE:-$(default_cache_base)/hermes/cache/flowcanvas-dev}")"
+mkdir -p "$CACHE_DIR"
+CACHE_W="$(to_host_path "$CACHE_DIR/hpy.json")"
+BOOT_W="$(to_host_path "$HERE/_boot.py")"
+if [ ! -s "$CACHE_DIR/hpy.json" ] || [ "${HPY_REFRESH:-0}" = "1" ]; then
+  hermes --print-runtime-command | BOOT="$BOOT_W" node -e '
+    let s = ""; process.stdin.on("data", d => s += d).on("end", () => {
+      const cmd = JSON.parse(s);
+      const code = cmd[3].replace(/runpy\.run_module\([^)]*\)\s*$/, "runpy.run_path(r\x27" + process.env.BOOT + "\x27, run_name=\x27__main__\x27)");
+      if (code === cmd[3]) { console.error("hpy: unexpected runtime command shape"); process.exit(2) }
+      process.stdout.write(JSON.stringify({ python: cmd[0], code }));
+    })' > "$CACHE_DIR/hpy.json"
+fi
+PY="$(node -e 'console.log(JSON.parse(require("fs").readFileSync(process.argv[1],"utf8")).python)' "$CACHE_W")"
+CODE="$(node -e 'process.stdout.write(JSON.parse(require("fs").readFileSync(process.argv[1],"utf8")).code)' "$CACHE_W")"
+if [ ! -f "$(to_unix_path "$PY")" ]; then
+  echo "hpy: cached interpreter vanished (Hermes update?) - retry with HPY_REFRESH=1" >&2; exit 2
+fi
+exec "$PY" -I -c "$CODE" "$@"

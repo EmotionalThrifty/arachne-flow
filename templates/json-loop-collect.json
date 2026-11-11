@@ -1,0 +1,150 @@
+{
+  "schema": "flowcanvas/1",
+  "name": "JSON objects through a loop",
+  "description": "No model, tool or network call: a JSON list → For each → pick fields → build typed objects → Collect. To inspect inputs, enable Record wired inputs on Build object before running.",
+  "nodes": [
+    {
+      "id": "n_000001",
+      "type": "input.json",
+      "title": "Items",
+      "params": {
+        "value": "[\n  {\n    \"title\": \"One\",\n    \"url\": \"https://example.test/1\"\n  },\n  {\n    \"title\": \"Two\",\n    \"url\": \"https://example.test/2\"\n  }\n]"
+      },
+      "x": 60,
+      "y": 80
+    },
+    {
+      "id": "n_000002",
+      "type": "logic.foreach",
+      "title": "For each",
+      "params": {},
+      "x": 380,
+      "y": 80
+    },
+    {
+      "id": "n_000003",
+      "type": "json.pick",
+      "title": "Title",
+      "params": {
+        "path": "title"
+      },
+      "x": 700,
+      "y": 60
+    },
+    {
+      "id": "n_000004",
+      "type": "json.pick",
+      "title": "URL",
+      "params": {
+        "path": "url"
+      },
+      "x": 700,
+      "y": 420
+    },
+    {
+      "id": "n_000005",
+      "type": "json.build",
+      "title": "Build object",
+      "params": {
+        "fields": "{{title}}\n{{url}}"
+      },
+      "x": 1020,
+      "y": 80
+    },
+    {
+      "id": "n_000006",
+      "type": "logic.collect",
+      "title": "Collect",
+      "params": {},
+      "x": 1340,
+      "y": 80
+    },
+    {
+      "id": "n_000007",
+      "type": "output.preview",
+      "title": "Result",
+      "params": {},
+      "x": 1660,
+      "y": 80
+    }
+  ],
+  "edges": [
+    {
+      "id": "e_000001",
+      "from": {
+        "node": "n_000001",
+        "port": "value"
+      },
+      "to": {
+        "node": "n_000002",
+        "port": "list"
+      }
+    },
+    {
+      "id": "e_000002",
+      "from": {
+        "node": "n_000002",
+        "port": "item"
+      },
+      "to": {
+        "node": "n_000003",
+        "port": "data"
+      }
+    },
+    {
+      "id": "e_000003",
+      "from": {
+        "node": "n_000002",
+        "port": "item"
+      },
+      "to": {
+        "node": "n_000004",
+        "port": "data"
+      }
+    },
+    {
+      "id": "e_000004",
+      "from": {
+        "node": "n_000003",
+        "port": "value"
+      },
+      "to": {
+        "node": "n_000005",
+        "port": "title"
+      }
+    },
+    {
+      "id": "e_000005",
+      "from": {
+        "node": "n_000004",
+        "port": "value"
+      },
+      "to": {
+        "node": "n_000005",
+        "port": "url"
+      }
+    },
+    {
+      "id": "e_000006",
+      "from": {
+        "node": "n_000005",
+        "port": "value"
+      },
+      "to": {
+        "node": "n_000006",
+        "port": "value"
+      }
+    },
+    {
+      "id": "e_000007",
+      "from": {
+        "node": "n_000006",
+        "port": "list"
+      },
+      "to": {
+        "node": "n_000007",
+        "port": "value"
+      }
+    }
+  ]
+}

@@ -1,0 +1,54 @@
+<!doctype html>
+<html lang="en" class="dark">
+<head>
+  <meta charset="utf-8">
+  <title>Arachne Flow — dev harness</title>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@vscode/codicons/dist/codicon.css">
+  <style>
+    /* Approximation of Hermes Desktop's dark theme variables (the real app computes these). */
+    :root {
+      --ui-base: #e8e6e3;
+      --ui-accent: #d6a23c;
+      --ui-accent-secondary: #7aa2f7;
+      --ui-bg-editor: #16161a;
+      --ui-bg-chrome: #111114;
+      --ui-bg-card: #1d1d22;
+      --ui-bg-elevated: #24242b;
+      --ui-bg-tertiary: #2a2a32;
+      --ui-text-primary: #ecebe8;
+      --ui-text-secondary: #b9b7b2;
+      --ui-text-tertiary: #8a8883;
+      --ui-text-quaternary: #64625e;
+      --ui-stroke-primary: #45454f;
+      --ui-stroke-secondary: #34343c;
+      --ui-stroke-tertiary: #2a2a31;
+      --ui-selection-background: rgba(214, 162, 60, 0.22);
+      --ui-row-hover-background: rgba(255, 255, 255, 0.05);
+      --ui-control-hover-background: rgba(255, 255, 255, 0.08);
+      --ui-red: #f7768e; --ui-green: #9ece6a; --ui-yellow: #e0af68; --ui-orange: #ff9e64;
+      --ui-blue: #7aa2f7; --ui-cyan: #7dcfff; --ui-purple: #bb9af7; --ui-warm: #d4a373;
+    }
+    html, body, #root { height: 100%; margin: 0; }
+    body { background: var(--ui-bg-editor); color: var(--ui-text-primary);
+           font: 13px/1.4 "Segoe UI", system-ui, sans-serif; overflow: hidden; }
+    #dev-banner { position: fixed; right: 8px; bottom: 6px; font-size: 11px; color: var(--ui-text-quaternary);
+                  pointer-events: none; z-index: 99999; }
+  </style>
+  <script type="importmap">
+  {
+    "imports": {
+      "react": "https://esm.sh/react@19.3.0",
+      "react/jsx-runtime": "https://esm.sh/react@19.3.0/jsx-runtime",
+      "react-dom": "https://esm.sh/react-dom@19.3.0?deps=react@19.3.0",
+      "react-dom/client": "https://esm.sh/react-dom@19.3.0/client?deps=react@19.3.0",
+      "@hermes/plugin-sdk": "/sdk-stub.js"
+    }
+  }
+  </script>
+</head>
+<body>
+  <div id="root"></div>
+  <div id="dev-banner">Arachne Flow dev harness</div>
+  <script type="module" src="/boot.js"></script>
+</body>
+</html>

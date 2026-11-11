@@ -1,0 +1,89 @@
+{
+  "schema": "flowcanvas/1",
+  "name": "Describe an image",
+  "description": "Pick a local image and let a vision model describe it.",
+  "nodes": [
+    {
+      "id": "n_f9f271",
+      "type": "input.file",
+      "title": "Image file",
+      "x": 80,
+      "y": 80,
+      "params": {
+        "path": "",
+        "kind": "image"
+      }
+    },
+    {
+      "id": "n_848c3f",
+      "type": "input.text",
+      "title": "Question",
+      "x": 80,
+      "y": 269,
+      "params": {
+        "value": "Describe this image in detail: subject, setting, colours, mood and any text."
+      }
+    },
+    {
+      "id": "n_1dd5d1",
+      "type": "preset.vision",
+      "title": "Vision",
+      "x": 380,
+      "y": 80,
+      "params": {}
+    },
+    {
+      "id": "n_e72cf6",
+      "type": "output.preview",
+      "title": "Description",
+      "x": 680,
+      "y": 80,
+      "params": {}
+    },
+    {
+      "id": "n_bc10ad",
+      "type": "note",
+      "title": "Note",
+      "x": 80,
+      "y": 458,
+      "params": {
+        "text": "Set the absolute path of an image in “Image file”, then press Run."
+      }
+    }
+  ],
+  "edges": [
+    {
+      "id": "e_f0e902",
+      "from": {
+        "node": "n_f9f271",
+        "port": "file"
+      },
+      "to": {
+        "node": "n_1dd5d1",
+        "port": "image"
+      }
+    },
+    {
+      "id": "e_956789",
+      "from": {
+        "node": "n_848c3f",
+        "port": "text"
+      },
+      "to": {
+        "node": "n_1dd5d1",
+        "port": "question"
+      }
+    },
+    {
+      "id": "e_55061c",
+      "from": {
+        "node": "n_1dd5d1",
+        "port": "text"
+      },
+      "to": {
+        "node": "n_e72cf6",
+        "port": "value"
+      }
+    }
+  ]
+}

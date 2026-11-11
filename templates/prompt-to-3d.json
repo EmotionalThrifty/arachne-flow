@@ -1,0 +1,222 @@
+{
+  "schema": "flowcanvas/1",
+  "name": "Prompt → image → 3D",
+  "description": "Turn an idea into an image prompt, an image, three more views of it and a 3D model built by Tripo H3.0 from all four views (paid image, edit and 3D generation; the 3D step can take several minutes).",
+  "nodes": [
+    {
+      "id": "n_c06265",
+      "type": "input.text",
+      "title": "Idea",
+      "x": 80,
+      "y": 80,
+      "params": {
+        "value": "a small wooden toy robot"
+      }
+    },
+    {
+      "id": "n_aad374",
+      "type": "llm.complete",
+      "title": "Image prompt",
+      "x": 380,
+      "y": 80,
+      "params": {
+        "system": "You write prompts for image models. Describe one clear subject on a plain background, with shape, material, colours and lighting. Answer with the prompt only.",
+        "template": "Object to show: {{idea}}"
+      }
+    },
+    {
+      "id": "n_dfa2db",
+      "type": "preset.text_to_image",
+      "title": "Image",
+      "x": 680,
+      "y": 80,
+      "params": {
+        "aspect_ratio": "square"
+      }
+    },
+    {
+      "id": "n_5e1a70",
+      "type": "input.text",
+      "title": "Other views",
+      "x": 80,
+      "y": 300,
+      "params": {
+        "value": "left side view\nback view\nright side view"
+      }
+    },
+    {
+      "id": "n_8b3c21",
+      "type": "logic.foreach",
+      "title": "For each view",
+      "x": 380,
+      "y": 300,
+      "params": {}
+    },
+    {
+      "id": "n_c47d02",
+      "type": "text.template",
+      "title": "View instruction",
+      "x": 680,
+      "y": 300,
+      "params": {
+        "template": "Show exactly the same object from the {{view}}. Keep the same shape, materials, colours, lighting and the plain background. Only change the camera angle."
+      }
+    },
+    {
+      "id": "n_e2a9b4",
+      "type": "preset.image_edit",
+      "title": "Make view",
+      "x": 980,
+      "y": 300,
+      "params": {}
+    },
+    {
+      "id": "n_f60d13",
+      "type": "logic.collect",
+      "title": "Collect views",
+      "x": 1280,
+      "y": 300,
+      "params": {}
+    },
+    {
+      "id": "n_309201",
+      "type": "preset.image_to_3d",
+      "title": "3D model",
+      "x": 1580,
+      "y": 80,
+      "params": {
+        "model": "tripo3d/h3.0"
+      }
+    },
+    {
+      "id": "n_739213",
+      "type": "output.preview",
+      "title": "Result",
+      "x": 1880,
+      "y": 80,
+      "params": {}
+    },
+    {
+      "id": "n_f41d4d",
+      "type": "note",
+      "title": "Note",
+      "x": 80,
+      "y": 480,
+      "params": {
+        "text": "Change the idea and press Run. The picture is the front view; three cheap edits add the left, back and right views, and Tripo H3.0 builds the 3D model from all four in its order: front, left, back, right. Use “Run up to here” on Collect views to check them before paying for the 3D step."
+      }
+    }
+  ],
+  "edges": [
+    {
+      "id": "e_24d6f3",
+      "from": {
+        "node": "n_c06265",
+        "port": "text"
+      },
+      "to": {
+        "node": "n_aad374",
+        "port": "idea"
+      }
+    },
+    {
+      "id": "e_b91f7d",
+      "from": {
+        "node": "n_aad374",
+        "port": "text"
+      },
+      "to": {
+        "node": "n_dfa2db",
+        "port": "prompt"
+      }
+    },
+    {
+      "id": "e_1d5f80",
+      "from": {
+        "node": "n_5e1a70",
+        "port": "text"
+      },
+      "to": {
+        "node": "n_8b3c21",
+        "port": "list"
+      }
+    },
+    {
+      "id": "e_2c6e91",
+      "from": {
+        "node": "n_8b3c21",
+        "port": "item"
+      },
+      "to": {
+        "node": "n_c47d02",
+        "port": "view"
+      }
+    },
+    {
+      "id": "e_3a7f02",
+      "from": {
+        "node": "n_c47d02",
+        "port": "text"
+      },
+      "to": {
+        "node": "n_e2a9b4",
+        "port": "prompt"
+      }
+    },
+    {
+      "id": "e_4b8013",
+      "from": {
+        "node": "n_dfa2db",
+        "port": "image"
+      },
+      "to": {
+        "node": "n_e2a9b4",
+        "port": "image"
+      }
+    },
+    {
+      "id": "e_5c9124",
+      "from": {
+        "node": "n_e2a9b4",
+        "port": "image"
+      },
+      "to": {
+        "node": "n_f60d13",
+        "port": "value"
+      }
+    },
+    {
+      "id": "e_7ecdf5",
+      "from": {
+        "node": "n_dfa2db",
+        "port": "image"
+      },
+      "to": {
+        "node": "n_309201",
+        "port": "image"
+      }
+    },
+    {
+      "id": "e_6da235",
+      "from": {
+        "node": "n_f60d13",
+        "port": "list"
+      },
+      "to": {
+        "node": "n_309201",
+        "port": "image"
+      }
+    },
+    {
+      "id": "e_67dafb",
+      "from": {
+        "node": "n_309201",
+        "port": "model"
+      },
+      "to": {
+        "node": "n_739213",
+        "port": "value"
+      }
+    }
+  ]
+}

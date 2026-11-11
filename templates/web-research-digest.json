@@ -1,0 +1,92 @@
+{
+  "schema": "flowcanvas/1",
+  "name": "Web research digest",
+  "description": "Search the web for a topic and summarise the findings with sources.",
+  "nodes": [
+    {
+      "id": "n_8685c7",
+      "type": "input.text",
+      "title": "Topic",
+      "x": 80,
+      "y": 80,
+      "params": {
+        "value": "solid-state batteries"
+      }
+    },
+    {
+      "id": "n_bba598",
+      "type": "preset.web_search",
+      "title": "Search",
+      "x": 380,
+      "y": 80,
+      "params": {
+        "limit": 5
+      }
+    },
+    {
+      "id": "n_439a18",
+      "type": "llm.complete",
+      "title": "Digest",
+      "x": 680,
+      "y": 80,
+      "params": {
+        "system": "You are a careful research assistant. Only use the given results.",
+        "template": "Summarise the key findings about {{topic}} in 5 bullet points. Cite the source URL after each point.\n\nSearch results:\n{{results}}"
+      }
+    },
+    {
+      "id": "n_9562b2",
+      "type": "output.preview",
+      "title": "Digest",
+      "x": 980,
+      "y": 80,
+      "params": {}
+    }
+  ],
+  "edges": [
+    {
+      "id": "e_4a88d9",
+      "from": {
+        "node": "n_8685c7",
+        "port": "text"
+      },
+      "to": {
+        "node": "n_bba598",
+        "port": "query"
+      }
+    },
+    {
+      "id": "e_966596",
+      "from": {
+        "node": "n_8685c7",
+        "port": "text"
+      },
+      "to": {
+        "node": "n_439a18",
+        "port": "topic"
+      }
+    },
+    {
+      "id": "e_e6bd0b",
+      "from": {
+        "node": "n_bba598",
+        "port": "text"
+      },
+      "to": {
+        "node": "n_439a18",
+        "port": "results"
+      }
+    },
+    {
+      "id": "e_023a4d",
+      "from": {
+        "node": "n_439a18",
+        "port": "text"
+      },
+      "to": {
+        "node": "n_9562b2",
+        "port": "value"
+      }
+    }
+  ]
+}

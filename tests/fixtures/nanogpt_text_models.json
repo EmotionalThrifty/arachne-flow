@@ -1,0 +1,239 @@
+{
+ "_source": "Live GET https://nano-gpt.com/api/v1/models?detailed=true (public catalog), 2026-11-06; 6 rows kept whole.",
+ "data": [
+  {
+   "id": "z-ai/glm-5.3-flash",
+   "name": "GLM 5.3 Flash",
+   "owned_by": "zhipu",
+   "context_length": 1048576,
+   "max_output_tokens": 131072,
+   "reasoning_efforts": [
+    "low",
+    "high",
+    "max"
+   ],
+   "capabilities": {
+    "vision": true,
+    "video_input": true,
+    "audio_input": false,
+    "reasoning": true,
+    "tool_calling": true,
+    "parallel_tool_calls": false,
+    "structured_output": true,
+    "pdf_upload": false,
+    "batch_api": true
+   },
+   "pricing": {
+    "prompt": 0.1,
+    "completion": 0.3,
+    "cacheReadInputPer1kTokens": 2.5e-05,
+    "currency": "USD",
+    "unit": "per_million_tokens"
+   },
+   "cost_estimate": 0.0002,
+   "supported_service_tiers": [],
+   "architecture": {
+    "modality": "text+image+video->text",
+    "input_modalities": [
+     "text",
+     "image",
+     "video"
+    ],
+    "output_modalities": [
+     "text"
+    ]
+   },
+   "description": "ox-alpha out of stealth! GLM-5.3 Flash is Z.ai's first natively multimodal GLM-5 model, with 320B total parameters and just 18B active parameters for efficient coding, agentic work, and precise 1M-tok"
+  },
+  {
+   "id": "openai/gpt-6.1-sol",
+   "name": "GPT 6.1 Sol",
+   "owned_by": "openai",
+   "context_length": 1050000,
+   "max_output_tokens": 128000,
+   "reasoning_efforts": [
+    "low",
+    "medium",
+    "high",
+    "xhigh",
+    "max"
+   ],
+   "capabilities": {
+    "vision": true,
+    "video_input": false,
+    "audio_input": false,
+    "reasoning": true,
+    "tool_calling": true,
+    "parallel_tool_calls": false,
+    "structured_output": true,
+    "pdf_upload": true,
+    "batch_api": true
+   },
+   "pricing": {
+    "prompt": 2,
+    "completion": 10,
+    "cacheReadInputPer1kTokens": 0.0001,
+    "cacheWriteInputPer1kTokens": 0.0025,
+    "inputPer1kTokensAbove200k": 0.004,
+    "outputPer1kTokensAbove200k": 0.015,
+    "cacheReadInputPer1kTokensAbove200k": 0.0002,
+    "highContextThresholdTokens": 272000,
+    "currency": "USD",
+    "unit": "per_million_tokens"
+   },
+   "cost_estimate": 0.012,
+   "supported_service_tiers": [
+    "flex",
+    "fast",
+    "priority",
+    "ultrafast"
+   ],
+   "architecture": {
+    "modality": "text+image->text",
+    "input_modalities": [
+     "text",
+     "image"
+    ],
+    "output_modalities": [
+     "text"
+    ]
+   },
+   "description": "GPT-6.1 Sol delivers near-Astra performance at a lower cost for complex coding, computer use, and professional work. It supports text and image input, tool calling, structured outputs, and reasoning f"
+  },
+  {
+   "id": "xiaomi/mimo-v2.6-pro",
+   "name": "MiMo V2.6 Pro",
+   "owned_by": "xiaomi",
+   "context_length": 1048576,
+   "max_output_tokens": 131072,
+   "reasoning_efforts": [
+    "none",
+    "high"
+   ],
+   "capabilities": {
+    "vision": true,
+    "video_input": true,
+    "audio_input": true,
+    "reasoning": true,
+    "tool_calling": true,
+    "parallel_tool_calls": false,
+    "structured_output": true,
+    "pdf_upload": false,
+    "batch_api": true
+   },
+   "pricing": {
+    "prompt": 0.435,
+    "completion": 0.87,
+    "cacheReadInputPer1kTokens": 3.6e-06,
+    "cacheWriteInputPer1kTokens": 0,
+    "currency": "USD",
+    "unit": "per_million_tokens"
+   },
+   "cost_estimate": 0.0006525,
+   "supported_service_tiers": [],
+   "architecture": {
+    "modality": "text+image+video+audio->text",
+    "input_modalities": [
+     "text",
+     "image",
+     "video",
+     "audio"
+    ],
+    "output_modalities": [
+     "text"
+    ]
+   },
+   "description": "MiMo V2.6 Pro is Xiaomi's flagship native omnimodal model, built with 1.02T total parameters and 42B active parameters per token. It is designed for demanding coding, long-horizon agent workflows, vis"
+  },
+  {
+   "id": "deepseek/deepseek-v4.1-flash-1017:thinking",
+   "name": "DeepSeek V4.1 Flash 1017 Thinking",
+   "owned_by": "deepseek",
+   "context_length": 1048576,
+   "max_output_tokens": 393216,
+   "reasoning_efforts": [
+    "none",
+    "low",
+    "high",
+    "max"
+   ],
+   "capabilities": {
+    "vision": true,
+    "video_input": false,
+    "audio_input": false,
+    "reasoning": true,
+    "tool_calling": true,
+    "parallel_tool_calls": false,
+    "structured_output": true,
+    "pdf_upload": false,
+    "batch_api": true
+   },
+   "pricing": {
+    "prompt": 0.1,
+    "completion": 0.6,
+    "cacheReadInputPer1kTokens": 4.2e-06,
+    "currency": "USD",
+    "unit": "per_million_tokens"
+   },
+   "cost_estimate": 0.00075,
+   "supported_service_tiers": [],
+   "architecture": {
+    "modality": "text+image->text",
+    "input_modalities": [
+     "text",
+     "image"
+    ],
+    "output_modalities": [
+     "text"
+    ]
+   },
+   "description": "The October 17, 2026 snapshot of DeepSeek V4.1 Flash supports text and image input, tool calling, and optional reasoning with low, high, and max effort. It has a shared 1,048,576-token context window "
+  },
+  {
+   "id": "anthropic/claude-opus-5.5",
+   "name": "Claude Opus 5.5",
+   "owned_by": "anthropic",
+   "context_length": 1000000,
+   "max_output_tokens": 128000,
+   "reasoning_efforts": [
+    "low",
+    "medium",
+    "high",
+    "xhigh",
+    "max"
+   ],
+   "capabilities": {
+    "vision": true,
+    "video_input": false,
+    "audio_input": false,
+    "reasoning": true,
+    "tool_calling": true,
+    "parallel_tool_calls": false,
+    "structured_output": true,
+    "pdf_upload": true,
+    "batch_api": true
+   },
+   "pricing": {
+    "prompt": 4,
+    "completion": 20,
+    "cacheReadInputPer1kTokens": 0.0002,
+    "cacheWriteInputPer1kTokens": 0.005,
+    "currency": "USD",
+    "unit": "per_million_tokens"
+   },
+   "cost_estimate": 0.02,
+   "supported_service_tiers": [],
+   "architecture": {
+    "modality": "text+image->text",
+    "input_modalities": [
+     "text",
+     "image"
+    ],
+    "output_modalities": [
+     "text"
+    ]
+   },
+   "description": "Claude Opus 5.5 is Anthropic's flagship model for agentic coding, computer use, complex knowledge work, and long-running tasks, with improved efficiency and more natural communication."
+  }
+ ]
+}

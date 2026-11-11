@@ -1,0 +1,79 @@
+{
+  "schema": "flowcanvas/1",
+  "name": "Idea to video",
+  "description": "Turn a short idea into a cinematic video prompt, then a 6-second clip.",
+  "nodes": [
+    {
+      "id": "n_0e11d0",
+      "type": "input.text",
+      "title": "Idea",
+      "x": 80,
+      "y": 80,
+      "params": {
+        "value": "a paper boat sailing through a rainy city street"
+      }
+    },
+    {
+      "id": "n_0b18a8",
+      "type": "llm.complete",
+      "title": "Video prompt",
+      "x": 380,
+      "y": 80,
+      "params": {
+        "system": "You write prompts for text-to-video models: one paragraph, subject, action, camera movement, lighting, mood. No lists.",
+        "template": "Write a video prompt for: {{idea}}"
+      }
+    },
+    {
+      "id": "n_eb9720",
+      "type": "preset.text_to_video",
+      "title": "Video",
+      "x": 680,
+      "y": 80,
+      "params": {}
+    },
+    {
+      "id": "n_92a3f7",
+      "type": "output.preview",
+      "title": "Result",
+      "x": 980,
+      "y": 80,
+      "params": {}
+    }
+  ],
+  "edges": [
+    {
+      "id": "e_df4a46",
+      "from": {
+        "node": "n_0e11d0",
+        "port": "text"
+      },
+      "to": {
+        "node": "n_0b18a8",
+        "port": "idea"
+      }
+    },
+    {
+      "id": "e_7c3b40",
+      "from": {
+        "node": "n_0b18a8",
+        "port": "text"
+      },
+      "to": {
+        "node": "n_eb9720",
+        "port": "prompt"
+      }
+    },
+    {
+      "id": "e_f3e7d6",
+      "from": {
+        "node": "n_eb9720",
+        "port": "video"
+      },
+      "to": {
+        "node": "n_92a3f7",
+        "port": "value"
+      }
+    }
+  ]
+}

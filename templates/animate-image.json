@@ -1,0 +1,79 @@
+{
+  "schema": "flowcanvas/1",
+  "name": "Animate a picture",
+  "description": "Bring a still image to life as a short video clip.",
+  "nodes": [
+    {
+      "id": "n_4760a8",
+      "type": "input.file",
+      "title": "Picture",
+      "x": 80,
+      "y": 80,
+      "params": {
+        "path": "",
+        "kind": "image"
+      }
+    },
+    {
+      "id": "n_9ea2b6",
+      "type": "input.text",
+      "title": "Motion",
+      "x": 80,
+      "y": 269,
+      "params": {
+        "value": "slow camera push-in, leaves moving gently in the wind"
+      }
+    },
+    {
+      "id": "n_515ed9",
+      "type": "preset.image_to_video",
+      "title": "Video",
+      "x": 380,
+      "y": 80,
+      "params": {}
+    },
+    {
+      "id": "n_a17391",
+      "type": "output.preview",
+      "title": "Result",
+      "x": 680,
+      "y": 80,
+      "params": {}
+    }
+  ],
+  "edges": [
+    {
+      "id": "e_47b8ef",
+      "from": {
+        "node": "n_4760a8",
+        "port": "file"
+      },
+      "to": {
+        "node": "n_515ed9",
+        "port": "image"
+      }
+    },
+    {
+      "id": "e_ba3cd0",
+      "from": {
+        "node": "n_9ea2b6",
+        "port": "text"
+      },
+      "to": {
+        "node": "n_515ed9",
+        "port": "prompt"
+      }
+    },
+    {
+      "id": "e_7a73ba",
+      "from": {
+        "node": "n_515ed9",
+        "port": "video"
+      },
+      "to": {
+        "node": "n_a17391",
+        "port": "value"
+      }
+    }
+  ]
+}

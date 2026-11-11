@@ -1,0 +1,79 @@
+{
+  "schema": "flowcanvas/1",
+  "name": "YouTube summary",
+  "description": "Get a video's transcript and turn it into key points and takeaways.",
+  "nodes": [
+    {
+      "id": "n_93e98d",
+      "type": "input.text",
+      "title": "Video link",
+      "x": 80,
+      "y": 80,
+      "params": {
+        "value": "https://www.youtube.com/watch?v=dQw4w9WgXcQ"
+      }
+    },
+    {
+      "id": "n_67e8e4",
+      "type": "preset.youtube_transcript",
+      "title": "Transcript",
+      "x": 380,
+      "y": 80,
+      "params": {}
+    },
+    {
+      "id": "n_bce80c",
+      "type": "llm.complete",
+      "title": "Summary",
+      "x": 680,
+      "y": 80,
+      "params": {
+        "system": "You summarise videos for busy people. Be concrete, no filler.",
+        "template": "Summarise this video transcript.\n\n1. Five key points as bullets\n2. Three takeaways I can act on\n\nTranscript:\n{{transcript}}"
+      }
+    },
+    {
+      "id": "n_edc810",
+      "type": "output.preview",
+      "title": "Result",
+      "x": 980,
+      "y": 80,
+      "params": {}
+    }
+  ],
+  "edges": [
+    {
+      "id": "e_d34269",
+      "from": {
+        "node": "n_93e98d",
+        "port": "text"
+      },
+      "to": {
+        "node": "n_67e8e4",
+        "port": "url"
+      }
+    },
+    {
+      "id": "e_83ff35",
+      "from": {
+        "node": "n_67e8e4",
+        "port": "text"
+      },
+      "to": {
+        "node": "n_bce80c",
+        "port": "transcript"
+      }
+    },
+    {
+      "id": "e_7c423a",
+      "from": {
+        "node": "n_bce80c",
+        "port": "text"
+      },
+      "to": {
+        "node": "n_edc810",
+        "port": "value"
+      }
+    }
+  ]
+}

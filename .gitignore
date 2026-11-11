@@ -1,0 +1,13 @@
+__pycache__/
+*.py[cod]
+.cache/
+.env
+.env.*
+.venv/
+venv/
+node_modules/
+*.log
+.DS_Store
+Thumbs.db
+dev/out/
+.hermes/

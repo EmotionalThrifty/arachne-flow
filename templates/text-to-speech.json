@@ -1,0 +1,78 @@
+{
+  "schema": "flowcanvas/1",
+  "name": "Text → speech",
+  "description": "Polish a text for reading aloud and turn it into audio.",
+  "nodes": [
+    {
+      "id": "n_6bad5c",
+      "type": "input.text",
+      "title": "Text",
+      "x": 80,
+      "y": 80,
+      "params": {
+        "value": "Welcome to Arachne Flow. Wire tools together and press Run."
+      }
+    },
+    {
+      "id": "n_0009f0",
+      "type": "llm.complete",
+      "title": "Polish for speech",
+      "x": 380,
+      "y": 80,
+      "params": {
+        "template": "Rewrite this so it sounds natural when read aloud. Keep the meaning and the language. Answer with the text only.\n\n{{text}}"
+      }
+    },
+    {
+      "id": "n_8546f1",
+      "type": "preset.tts",
+      "title": "Speech",
+      "x": 680,
+      "y": 80,
+      "params": {}
+    },
+    {
+      "id": "n_e53426",
+      "type": "output.preview",
+      "title": "Audio",
+      "x": 980,
+      "y": 80,
+      "params": {}
+    }
+  ],
+  "edges": [
+    {
+      "id": "e_698676",
+      "from": {
+        "node": "n_6bad5c",
+        "port": "text"
+      },
+      "to": {
+        "node": "n_0009f0",
+        "port": "text"
+      }
+    },
+    {
+      "id": "e_3eed3f",
+      "from": {
+        "node": "n_0009f0",
+        "port": "text"
+      },
+      "to": {
+        "node": "n_8546f1",
+        "port": "text"
+      }
+    },
+    {
+      "id": "e_1848a1",
+      "from": {
+        "node": "n_8546f1",
+        "port": "audio"
+      },
+      "to": {
+        "node": "n_e53426",
+        "port": "value"
+      }
+    }
+  ]
+}

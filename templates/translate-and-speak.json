@@ -1,0 +1,100 @@
+{
+  "schema": "flowcanvas/1",
+  "name": "Translate and speak",
+  "description": "Translate a text into another language and read it aloud.",
+  "nodes": [
+    {
+      "id": "n_587d2e",
+      "type": "input.text",
+      "title": "Text",
+      "x": 80,
+      "y": 80,
+      "params": {
+        "value": "Guten Morgen! Heute testen wir Arachne Flow."
+      }
+    },
+    {
+      "id": "n_1bef88",
+      "type": "input.text",
+      "title": "Language",
+      "x": 80,
+      "y": 269,
+      "params": {
+        "value": "English"
+      }
+    },
+    {
+      "id": "n_e21e72",
+      "type": "llm.complete",
+      "title": "Translate",
+      "x": 380,
+      "y": 80,
+      "params": {
+        "system": "You are a translator. Answer with the translation only.",
+        "template": "Translate into {{language}}:\n\n{{text}}"
+      }
+    },
+    {
+      "id": "n_e347e7",
+      "type": "preset.tts",
+      "title": "Speak",
+      "x": 680,
+      "y": 80,
+      "params": {}
+    },
+    {
+      "id": "n_834f4b",
+      "type": "output.preview",
+      "title": "Audio",
+      "x": 980,
+      "y": 80,
+      "params": {}
+    }
+  ],
+  "edges": [
+    {
+      "id": "e_6545b7",
+      "from": {
+        "node": "n_587d2e",
+        "port": "text"
+      },
+      "to": {
+        "node": "n_e21e72",
+        "port": "text"
+      }
+    },
+    {
+      "id": "e_6b1d32",
+      "from": {
+        "node": "n_1bef88",
+        "port": "text"
+      },
+      "to": {
+        "node": "n_e21e72",
+        "port": "language"
+      }
+    },
+    {
+      "id": "e_296027",
+      "from": {
+        "node": "n_e21e72",
+        "port": "text"
+      },
+      "to": {
+        "node": "n_e347e7",
+        "port": "text"
+      }
+    },
+    {
+      "id": "e_417c47",
+      "from": {
+        "node": "n_e347e7",
+        "port": "audio"
+      },
+      "to": {
+        "node": "n_834f4b",
+        "port": "value"
+      }
+    }
+  ]
+}

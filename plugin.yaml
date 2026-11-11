@@ -1,0 +1,56 @@
+name: flowcanvas
+label: Arachne Flow
+kind: standalone
+version: 1.0.0
+manifest_version: 2
+api_version: 1
+author: EmotionalThrifty
+license: MIT
+homepage: https://github.com/EmotionalThrifty/arachne-flow
+description: >
+  Node-based flow editor for Hermes Desktop: wire tools, LLM calls and MCP tools into a graph and run it.
+tags: [desktop, flow, canvas, nodes, pipeline, workflow]
+requires_hermes: ">=0.22"
+provides_tools:
+  - flow_list
+  - flow_get
+  - flow_node_types
+  - flow_apply
+  - flow_run
+  - flow_status
+  - flow_template_save
+provides_hooks: []
+config_schema:
+  blocked_tools:
+    type: list
+    label: Blocked tools
+    description: >
+      Tools that never become nodes. Replaces the built-in list shown here; an empty list unblocks
+      everything except kanban_*, flow_*, yb_*, feishu_* and send_message*, which stay blocked.
+    default: [terminal, execute_code, write_file, patch, process_manage, computer_use, browser_vault, browser_cdp,
+              browser_dialog, browser_exec, delegate_task, cronjob_manage, clarify, memory,
+              desktop_preview, drive_preview, annotate_preview, focus_pane, set_theme, close_terminal,
+              read_terminal, read_window_below, desktop_project, manage_catalog, manage_connections,
+              setup_beat, gui_tour, show_tip, todo_list, skill_manage, react_to_message, discord,
+              discord_admin, mcp__messaging__messages_send, mcp__blender__execute_blender_code,
+              mcp__godot_ai__editor_manage, mcp__godot_ai__script_create, mcp__godot_ai__script_patch]
+  allow_tools:
+    type: list
+    label: Allowed tools
+    description: Tools to unblock on purpose (wins over the blocked list and the fixed prefixes).
+    default: []
+  max_parallel:
+    type: int
+    label: Parallel nodes
+    description: How many independent nodes of one run execute at the same time.
+    default: 3
+  max_items:
+    type: int
+    label: Max items per For each
+    description: Upper limit of list items one For each runs (a node's own Limit can only lower it).
+    default: 100
+  node_timeout_s:
+    type: int
+    label: Node timeout (seconds)
+    description: Default time limit per node; a node's own timeout_s parameter overrides it.
+    default: 120

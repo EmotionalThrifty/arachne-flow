@@ -1,0 +1,79 @@
+{
+  "schema": "flowcanvas/1",
+  "name": "Edit an image",
+  "description": "Change a picture with a plain-language instruction.",
+  "nodes": [
+    {
+      "id": "n_99b0ff",
+      "type": "input.file",
+      "title": "Picture",
+      "x": 80,
+      "y": 80,
+      "params": {
+        "path": "",
+        "kind": "image"
+      }
+    },
+    {
+      "id": "n_40c33b",
+      "type": "input.text",
+      "title": "Instruction",
+      "x": 80,
+      "y": 269,
+      "params": {
+        "value": "Replace the background with a sunny beach, keep the person unchanged."
+      }
+    },
+    {
+      "id": "n_52e2d3",
+      "type": "preset.image_edit",
+      "title": "Edit image",
+      "x": 380,
+      "y": 80,
+      "params": {}
+    },
+    {
+      "id": "n_d3f9cd",
+      "type": "output.preview",
+      "title": "Result",
+      "x": 680,
+      "y": 80,
+      "params": {}
+    }
+  ],
+  "edges": [
+    {
+      "id": "e_821954",
+      "from": {
+        "node": "n_99b0ff",
+        "port": "file"
+      },
+      "to": {
+        "node": "n_52e2d3",
+        "port": "image"
+      }
+    },
+    {
+      "id": "e_60187e",
+      "from": {
+        "node": "n_40c33b",
+        "port": "text"
+      },
+      "to": {
+        "node": "n_52e2d3",
+        "port": "prompt"
+      }
+    },
+    {
+      "id": "e_9fb62d",
+      "from": {
+        "node": "n_52e2d3",
+        "port": "image"
+      },
+      "to": {
+        "node": "n_d3f9cd",
+        "port": "value"
+      }
+    }
+  ]
+}

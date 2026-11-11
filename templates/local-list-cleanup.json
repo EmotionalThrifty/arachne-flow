@@ -1,0 +1,99 @@
+{
+  "schema": "flowcanvas/1",
+  "name": "Local list cleanup",
+  "description": "No model, tool or network call: JSON list → remove empty values → deduplicate → join. Keeps false and zero.",
+  "nodes": [
+    {
+      "id": "n_000001",
+      "type": "input.json",
+      "title": "Sample values",
+      "params": {
+        "value": "[\"alpha\", \"\", null, \"alpha\", \"雪\", false, 0]"
+      },
+      "x": 60,
+      "y": 80
+    },
+    {
+      "id": "n_000002",
+      "type": "list.filter",
+      "title": "Remove empty",
+      "params": {
+        "op": "not empty"
+      },
+      "x": 380,
+      "y": 80
+    },
+    {
+      "id": "n_000003",
+      "type": "list.deduplicate",
+      "title": "Unique values",
+      "params": {},
+      "x": 700,
+      "y": 80
+    },
+    {
+      "id": "n_000004",
+      "type": "text.join",
+      "title": "Join",
+      "params": {
+        "separator": " | "
+      },
+      "x": 1020,
+      "y": 80
+    },
+    {
+      "id": "n_000005",
+      "type": "output.preview",
+      "title": "Result",
+      "params": {},
+      "x": 1340,
+      "y": 80
+    }
+  ],
+  "edges": [
+    {
+      "id": "e_000001",
+      "from": {
+        "node": "n_000001",
+        "port": "value"
+      },
+      "to": {
+        "node": "n_000002",
+        "port": "list"
+      }
+    },
+    {
+      "id": "e_000002",
+      "from": {
+        "node": "n_000002",
+        "port": "list"
+      },
+      "to": {
+        "node": "n_000003",
+        "port": "list"
+      }
+    },
+    {
+      "id": "e_000003",
+      "from": {
+        "node": "n_000003",
+        "port": "list"
+      },
+      "to": {
+        "node": "n_000004",
+        "port": "list"
+      }
+    },
+    {
+      "id": "e_000004",
+      "from": {
+        "node": "n_000004",
+        "port": "text"
+      },
+      "to": {
+        "node": "n_000005",
+        "port": "value"
+      }
+    }
+  ]
+}

@@ -1,0 +1,112 @@
+{
+  "schema": "flowcanvas/1",
+  "name": "Blog post writer",
+  "description": "Research a topic on the web, outline it, then write the article.",
+  "nodes": [
+    {
+      "id": "n_1da545",
+      "type": "input.text",
+      "title": "Topic",
+      "x": 80,
+      "y": 80,
+      "params": {
+        "value": "how to start running as a beginner"
+      }
+    },
+    {
+      "id": "n_a77d7c",
+      "type": "preset.web_search",
+      "title": "Research",
+      "x": 380,
+      "y": 80,
+      "params": {}
+    },
+    {
+      "id": "n_1c4ec2",
+      "type": "llm.complete",
+      "title": "Outline",
+      "x": 680,
+      "y": 80,
+      "params": {
+        "system": "You plan clear, practical blog posts.",
+        "template": "Make an outline (H2 headings + 2 bullets each) for a blog post about {{topic}}. Use these search results as facts:\n{{results}}"
+      }
+    },
+    {
+      "id": "n_4f9854",
+      "type": "llm.complete",
+      "title": "Article",
+      "x": 980,
+      "y": 80,
+      "params": {
+        "system": "You write friendly, concrete blog posts in Markdown.",
+        "template": "Write the full blog post (about 800 words) following this outline:\n\n{{outline}}"
+      }
+    },
+    {
+      "id": "n_53faa7",
+      "type": "output.preview",
+      "title": "Result",
+      "x": 1280,
+      "y": 80,
+      "params": {}
+    }
+  ],
+  "edges": [
+    {
+      "id": "e_3ce40d",
+      "from": {
+        "node": "n_1da545",
+        "port": "text"
+      },
+      "to": {
+        "node": "n_a77d7c",
+        "port": "query"
+      }
+    },
+    {
+      "id": "e_d9b383",
+      "from": {
+        "node": "n_1da545",
+        "port": "text"
+      },
+      "to": {
+        "node": "n_1c4ec2",
+        "port": "topic"
+      }
+    },
+    {
+      "id": "e_b8c73b",
+      "from": {
+        "node": "n_a77d7c",
+        "port": "text"
+      },
+      "to": {
+        "node": "n_1c4ec2",
+        "port": "results"
+      }
+    },
+    {
+      "id": "e_d1c353",
+      "from": {
+        "node": "n_1c4ec2",
+        "port": "text"
+      },
+      "to": {
+        "node": "n_4f9854",
+        "port": "outline"
+      }
+    },
+    {
+      "id": "e_d5beb6",
+      "from": {
+        "node": "n_4f9854",
+        "port": "text"
+      },
+      "to": {
+        "node": "n_53faa7",
+        "port": "value"
+      }
+    }
+  ]
+}
