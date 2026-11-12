@@ -52,7 +52,7 @@ MAX_LARGE_FILE_BYTES = 16 * 1024 * 1024
 
 class ValueApiTest(unittest.TestCase):
     def setUp(self):
-        self._old_data_dir = os.environ.get("FLOWCANVAS_DATA_DIR")
+        self._old_data_dir = os.environ.get("ARACHNE_FLOW_DATA_DIR")
         self._scratch_dirs: list[str] = []
         self._links: list[str] = []
         self.data_dir = helpers.temp_data_dir()
@@ -67,9 +67,9 @@ class ValueApiTest(unittest.TestCase):
         for folder in self._scratch_dirs:
             shutil.rmtree(folder, ignore_errors=True)
         if self._old_data_dir is None:
-            os.environ.pop("FLOWCANVAS_DATA_DIR", None)
+            os.environ.pop("ARACHNE_FLOW_DATA_DIR", None)
         else:
-            os.environ["FLOWCANVAS_DATA_DIR"] = self._old_data_dir
+            os.environ["ARACHNE_FLOW_DATA_DIR"] = self._old_data_dir
         shutil.rmtree(getattr(self, "data_dir", ""), ignore_errors=True)
 
     # ---------------------------------------------------------------- fixtures
@@ -90,7 +90,7 @@ class ValueApiTest(unittest.TestCase):
         return R.record_value(self.env, value, run_id, NODE, port)
 
     def _secret_file(self, text: str) -> str:
-        folder = tempfile.mkdtemp(prefix="flowcanvas-value-secret-")
+        folder = tempfile.mkdtemp(prefix="arachne-flow-value-secret-")
         self._scratch_dirs.append(folder)
         path = os.path.join(folder, "secret.txt")
         with open(path, "w", encoding="utf-8", newline="") as fh:
@@ -235,7 +235,7 @@ class ValueApiTest(unittest.TestCase):
                 None, False, 0, {}, [],
                 {"name": "Ä\nZeile", "media": {"$media": {"kind": "image", "file": "pic.png",
                                                           "mime": "image/png",
-                                                          "path": "C:/flowcanvas-data/pic.png"}}},
+                                                          "path": "C:/arachne-flow-data/pic.png"}}},
             ],
             "nested": {"x": [1, 2.5, True], "empty": ""},
         }
@@ -413,7 +413,7 @@ class ValueApiTest(unittest.TestCase):
 
     def test_link_inside_output_dir_cannot_escape_to_a_secret(self):
         secret = "LINK-SECRET-" + "l" * 5000
-        folder = tempfile.mkdtemp(prefix="flowcanvas-value-target-")
+        folder = tempfile.mkdtemp(prefix="arachne-flow-value-target-")
         self._scratch_dirs.append(folder)
         with open(os.path.join(folder, "secret.txt"), "w", encoding="utf-8") as fh:
             fh.write(secret)
@@ -483,7 +483,7 @@ class ValueApiTest(unittest.TestCase):
         self.assertEqual(self.get_value(limit="100")["chunk"], "ordinary run")   # endpoint exists
 
         secret = "RUN-ROOT-SECRET-" + "s" * 6000
-        target = tempfile.mkdtemp(prefix="flowcanvas-value-runaroot-")
+        target = tempfile.mkdtemp(prefix="arachne-flow-value-runaroot-")
         self._scratch_dirs.append(target)
         with open(os.path.join(target, "secret.txt"), "w", encoding="utf-8", newline="") as fh:
             fh.write(secret)

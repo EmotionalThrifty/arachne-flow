@@ -1,5 +1,5 @@
 {
-  "schema": "flowcanvas/1",
+  "schema": "arachne-flow/1",
   "name": "Animate a picture",
   "description": "Bring a still image to life as a short video clip.",
   "nodes": [

@@ -24,7 +24,7 @@ from datetime import datetime, timezone
 from . import graph
 from . import messaging as MSG
 
-logger = logging.getLogger("flowcanvas.store")
+logger = logging.getLogger("arachne-flow.store")
 
 RUN_ID_RE = re.compile(r"^r_[0-9a-f]{10}$")
 TEMPLATE_ID_RE = re.compile(r"^[a-z0-9][a-z0-9_-]{0,63}$")
@@ -62,10 +62,10 @@ class ConflictError(Exception):
 # ----------------------------------------------------------------- paths
 
 def data_dir(env) -> str:
-    path = getattr(env, "data_dir", None) or os.environ.get("FLOWCANVAS_DATA_DIR")
+    path = getattr(env, "data_dir", None) or os.environ.get("ARACHNE_FLOW_DATA_DIR")
     if not path:
         from plugins.plugin_storage import plugin_data_dir  # Hermes public surface
-        path = str(plugin_data_dir("flowcanvas"))
+        path = str(plugin_data_dir("arachne-flow"))
     os.makedirs(path, exist_ok=True)
     return path
 
@@ -349,7 +349,7 @@ def _try_read(path: str):
     except FileNotFoundError:
         return None
     except (OSError, ValueError) as exc:
-        logger.warning("flowcanvas: unreadable file %s: %s", path, exc)
+        logger.warning("arachne-flow: unreadable file %s: %s", path, exc)
         return None
 
 
@@ -901,7 +901,7 @@ def prune_runs(env, flow_id: str, keep: int = KEEP_RUNS) -> list:
             try:
                 os.remove(path)
             except OSError as exc:
-                logger.warning("flowcanvas: could not delete run %s: %s", path, exc)
+                logger.warning("arachne-flow: could not delete run %s: %s", path, exc)
                 continue
             shutil.rmtree(outputs_dir(env, run["id"], create=False), ignore_errors=True)
             removed.append(run["id"])
@@ -1016,7 +1016,7 @@ def prune_stale_files(env, now: float = None, max_age_s: float = None) -> dict:
             try:
                 os.remove(path)
             except OSError as exc:
-                logger.warning("flowcanvas: could not delete trashed flow %s: %s", path, exc)
+                logger.warning("arachne-flow: could not delete trashed flow %s: %s", path, exc)
                 continue
             counts["trash"] += 1
 
@@ -1036,7 +1036,7 @@ def prune_stale_files(env, now: float = None, max_age_s: float = None) -> dict:
             try:
                 os.remove(path)
             except OSError as exc:
-                logger.warning("flowcanvas: could not delete upload %s: %s", path, exc)
+                logger.warning("arachne-flow: could not delete upload %s: %s", path, exc)
                 continue
             counts["uploads"] += 1
             parent = os.path.dirname(path)

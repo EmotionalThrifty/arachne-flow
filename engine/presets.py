@@ -316,7 +316,7 @@ def _job_media(result, nctx):
         try:
             return [M.ingest(url, nctx.out_dir, f"{nctx.node_id}-job{i}", allow_download=nctx.allow_download)]
         except Exception as exc:  # noqa: BLE001 - try the next link, then the generic scan
-            E.logger.info("flowcanvas: job media %s skipped: %s", url[:120], exc)
+            E.logger.info("arachne-flow: job media %s skipped: %s", url[:120], exc)
     return E.collect_media(result, nctx)
 
 

@@ -110,7 +110,7 @@ def main():
         errors = [i for i in issues if i.get("level") == "error"]
         if errors:
             raise SystemExit(f"{tid}: {errors}")
-        data = {"schema": "flowcanvas/1", "name": name, "description": description,
+        data = {"schema": "arachne-flow/1", "name": name, "description": description,
                 "nodes": flow["nodes"], "edges": flow["edges"]}
         with open(os.path.join(ROOT, "templates", tid + ".json"), "w", encoding="utf-8", newline="\n") as fh:
             json.dump(data, fh, indent=2, ensure_ascii=False)

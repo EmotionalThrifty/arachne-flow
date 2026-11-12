@@ -9,7 +9,7 @@ from . import nodes as N
 from . import runner as R
 from . import store as S
 
-logger = logging.getLogger("flowcanvas.tools")
+logger = logging.getLogger("arachne-flow.tools")
 USAGE = "usage: /flow list | /flow run <name|id> [--fresh] | /flow open [name|id] | /flow status <run_id>"
 
 
@@ -42,7 +42,7 @@ def _emit_changed(env, flow, created=False):
         env.emit("flow.changed", {"flow_id": flow["id"], "revision": flow.get("revision"),
                                   "origin": "agent", "created": bool(created)})
     except Exception as exc:  # noqa: BLE001 - UI notification is best effort
-        logger.debug("flowcanvas: flow.changed not delivered: %s", exc)
+        logger.debug("arachne-flow: flow.changed not delivered: %s", exc)
 
 
 def _list_text(flows, templates=()):
@@ -65,7 +65,7 @@ def _templates(env):
     try:
         return S.list_templates(env, known_types=set(N.types_by_name(env)))
     except Exception as exc:  # noqa: BLE001 - the flow list must not fail because of a template file
-        logger.warning("flowcanvas: templates not listed: %s", exc)
+        logger.warning("arachne-flow: templates not listed: %s", exc)
         return []
 
 
@@ -73,7 +73,7 @@ def _emit_templates_changed(env, template_id, created):
     try:
         env.emit("templates.changed", {"template_id": template_id, "origin": "agent", "created": bool(created)})
     except Exception as exc:  # noqa: BLE001 - UI notification is best effort
-        logger.debug("flowcanvas: templates.changed not delivered: %s", exc)
+        logger.debug("arachne-flow: templates.changed not delivered: %s", exc)
 
 
 def _flow_text(flow):
@@ -241,7 +241,7 @@ def handle(name: str, args: dict, kwargs: dict, env) -> str:
     except (S.StoreError, R.RunError, ValueError) as exc:
         return _error(str(exc))
     except Exception as exc:  # noqa: BLE001 - tool handlers must not raise into the agent runtime
-        logger.exception("flowcanvas: agent tool %s failed", name)
+        logger.exception("arachne-flow: agent tool %s failed", name)
         return _error(f"{type(exc).__name__}: {exc}", "internal")
 
 
@@ -256,7 +256,7 @@ def _open(ref: str, env) -> str:
     try:
         env.emit("ui.open", {"flow_id": flow["id"] if flow else None})
     except Exception as exc:  # noqa: BLE001 - no Desktop listening is not an error for the command
-        logger.debug("flowcanvas: ui.open not delivered: %s", exc)
+        logger.debug("arachne-flow: ui.open not delivered: %s", exc)
         return "Could not reach Hermes Desktop. Open Arachne Flow from the sidebar."
     if flow:
         return f"Opening {flow.get('name') or flow['id']} ({flow['id']}) in Arachne Flow."

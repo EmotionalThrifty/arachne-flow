@@ -74,7 +74,7 @@ def dir_bytes(folder):
 
 class CacheBudgetTest(unittest.TestCase):
     def setUp(self):
-        environ = mock.patch.dict(os.environ)   # temp_data_dir sets FLOWCANVAS_DATA_DIR; restore it afterwards
+        environ = mock.patch.dict(os.environ)   # temp_data_dir sets ARACHNE_FLOW_DATA_DIR; restore it afterwards
         environ.start()
         self.addCleanup(environ.stop)
         self.data = helpers.temp_data_dir()

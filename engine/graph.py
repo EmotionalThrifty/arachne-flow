@@ -12,7 +12,9 @@ from datetime import datetime, timezone
 from . import layout
 from . import types as ptypes
 
-SCHEMA = "flowcanvas/1"
+SCHEMA = "arachne-flow/1"
+# Flows and templates saved before the plugin id became arachne-flow; the next save writes SCHEMA.
+LEGACY_SCHEMAS = ("flowcanvas/1",)
 NODE_ID_RE = re.compile(r"^n_[0-9a-f]{6}$")
 EDGE_ID_RE = re.compile(r"^e_[0-9a-f]{6}$")
 FLOW_ID_RE = re.compile(r"^f_[0-9a-f]{10}$")
@@ -339,7 +341,7 @@ def validate(flow: dict, types_by_name: dict) -> list:
     issues: list = []
     if not isinstance(flow, dict):
         return [_issue("error", "flow must be an object")]
-    if flow.get("schema") not in (None, SCHEMA):
+    if flow.get("schema") not in (None, SCHEMA, *LEGACY_SCHEMAS):
         issues.append(_issue("error", f"unsupported schema {flow.get('schema')!r}"))
     nodes = flow.get("nodes")
     edges = flow.get("edges")

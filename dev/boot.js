@@ -92,7 +92,7 @@ if (params.get('recent')) memory.set('recentTypes', params.get('recent').split('
 
 const contributions = []
 const ctx = {
-  id: 'flowcanvas',
+  id: 'arachne-flow',
   register(c) { contributions.push(c); return () => {} },
   registerMany(list) { list.forEach((c) => contributions.push(c)); return () => {} },
   async rest(path, opts = {}) {
@@ -104,7 +104,7 @@ const ctx = {
     // U-10: Desktop's bridge sends a plugin `upload` as one multipart part named "file" (electron main.ts,
     // multipartBody) — mirror that instead of a JSON body so the harness exercises the same route.
     const res = opts.upload
-      ? await fetch('/api/plugins/flowcanvas' + path, {
+      ? await fetch('/api/plugins/arachne-flow' + path, {
         method,
         body: (() => {
           const form = new FormData()
@@ -113,7 +113,7 @@ const ctx = {
           return form
         })()
       })
-      : await fetch('/api/plugins/flowcanvas' + path, {
+      : await fetch('/api/plugins/arachne-flow' + path, {
         method,
         headers: opts.body !== undefined ? { 'Content-Type': 'application/json' } : undefined,
         body: opts.body !== undefined ? JSON.stringify(opts.body) : undefined
@@ -378,14 +378,14 @@ if (params.get('agent_sync')) {
       document.querySelector('.fc-root')?.dispatchEvent(new KeyboardEvent('keydown', { key: 'Delete', bubbles: true }))
       await sleep(50)
     }
-    const res = await fetch(`/api/plugins/flowcanvas/x/flows/${flowId}/ops`, {
+    const res = await fetch(`/api/plugins/arachne-flow/x/flows/${flowId}/ops`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ origin: 'agent', ops: [{ op: 'add_node', type: 'note', title: 'From Hermes', x: 40, y: 700 }] })
     })
     diag.agentEdit = res.status
     const body = await res.json()
-    diag.agentListeners = window.__devEmit('plugin.flowcanvas.flow.changed',
+    diag.agentListeners = window.__devEmit('plugin.arachne-flow.flow.changed',
       { flow_id: flowId, revision: body.flow && body.flow.revision, origin: 'agent' })
     await sleep(1500)
     diag.sync = {
@@ -422,14 +422,14 @@ if (params.get('agent_undo')) {
     const flowId = params.get('flow')
     const out = { before: count() }
     diag.undo = out
-    const res = await fetch(`/api/plugins/flowcanvas/x/flows/${flowId}/ops`, {
+    const res = await fetch(`/api/plugins/arachne-flow/x/flows/${flowId}/ops`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ origin: 'agent', ops: [{ op: 'add_node', type: 'note', title: 'From Hermes', x: 40, y: 700 }] })
     })
     diag.agentEdit = res.status
     const body = await res.json()
-    window.__devEmit('plugin.flowcanvas.flow.changed',
+    window.__devEmit('plugin.arachne-flow.flow.changed',
       { flow_id: flowId, revision: body.flow && body.flow.revision, origin: 'agent' })
     await sleep(1500)
     out.afterSync = count()
@@ -892,13 +892,13 @@ if (params.get('popin')) {
         padRight: getComputedStyle(head).paddingRight, drag: getComputedStyle(head).getPropertyValue('-webkit-app-region') || getComputedStyle(head).getPropertyValue('app-region'),
         runDrag: run ? (getComputedStyle(run).getPropertyValue('-webkit-app-region') || getComputedStyle(run).getPropertyValue('app-region')) : null,
         runRight: run ? Math.round(run.getBoundingClientRect().right) : null, unfocus: !!head.querySelector('[data-fc-unfocus]'),
-        session: sessionStorage.getItem('hermes.plugin.flowcanvas.focusWindow')
+        session: sessionStorage.getItem('hermes.plugin.arachne-flow.focusWindow')
       }
       if (params.get('popin') === 'shot') return
       head.querySelector('[data-fc-unfocus]')?.click()
       await sleep(400)
       out.after = { flag: document.querySelector('.fc-root').dataset.fcFocusWindow || null, root: box(document.querySelector('.fc-root')),
-        session: sessionStorage.getItem('hermes.plugin.flowcanvas.focusWindow') }
+        session: sessionStorage.getItem('hermes.plugin.arachne-flow.focusWindow') }
     }
   })().catch((err) => diag.errors.push('popout: ' + (err && err.message || err)))
 }

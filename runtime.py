@@ -13,7 +13,7 @@ import os
 import sys
 import threading
 
-logger = logging.getLogger("flowcanvas.runtime")
+logger = logging.getLogger("arachne-flow.runtime")
 
 HERE = os.path.dirname(os.path.realpath(__file__))
 STATE: dict = {"ctx": None}
@@ -43,7 +43,7 @@ def find_or_load():
             return module
     if found:
         return found[0]
-    name = "flowcanvas_runtime"
+    name = "arachne_flow_runtime"
     spec = importlib.util.spec_from_file_location(name, os.path.join(HERE, "runtime.py"))
     module = importlib.util.module_from_spec(spec)
     sys.modules[name] = module
@@ -78,9 +78,9 @@ def ensure_ctx():
 
 
 def dev_mode() -> bool:
-    """Hot reload of backend.py / engine/ only for development (``FLOWCANVAS_DEV=1``, review E-9): an installed
+    """Hot reload of backend.py / engine/ only for development (``ARACHNE_FLOW_DEV=1``, review E-9): an installed
     plugin updated by ``hermes plugins update`` must not swap modules under running flows."""
-    return os.environ.get("FLOWCANVAS_DEV", "").strip() == "1"
+    return os.environ.get("ARACHNE_FLOW_DEV", "").strip() == "1"
 
 
 def runs_active() -> bool:
@@ -90,7 +90,7 @@ def runs_active() -> bool:
 
 def load_backend():
     """backend.py, loaded once per process (the ONE loader: __init__.py and dashboard/plugin_api.py both use it).
-    With FLOWCANVAS_DEV=1 it is re-imported after an edit, but never while a run is active."""
+    With ARACHNE_FLOW_DEV=1 it is re-imported after an edit, but never while a run is active."""
     path = os.path.join(HERE, "backend.py")
     with _BACKEND_LOCK:
         cached = STATE.get("backend")
@@ -99,7 +99,7 @@ def load_backend():
         mtime = os.path.getmtime(path)
         if cached is not None and STATE.get("backend_mtime") == mtime:
             return cached
-        name = "flowcanvas_backend"
+        name = "arachne_flow_backend"
         spec = importlib.util.spec_from_file_location(name, path)
         module = importlib.util.module_from_spec(spec)
         sys.modules[name] = module

@@ -34,7 +34,7 @@ def write(folder, name, data=b"secret"):
 class FilePickTest(unittest.TestCase):
     def setUp(self):
         self.data = helpers.temp_data_dir()
-        self.scratch = tempfile.mkdtemp(prefix="flowcanvas-picks-")
+        self.scratch = tempfile.mkdtemp(prefix="arachne-flow-picks-")
         # A synthetic Hermes home (profile layout) with its credential stores; never the real one.
         self.root = os.path.join(self.scratch, "hermes")
         self.home = os.path.join(self.root, "profiles", "work")
@@ -42,7 +42,7 @@ class FilePickTest(unittest.TestCase):
         patcher = mock.patch.object(M, "_hermes_home", return_value=self.home)
         patcher.start()
         self.addCleanup(patcher.stop)
-        env_patch = mock.patch.dict(os.environ, {"FLOWCANVAS_MEDIA_ROOTS": ""})
+        env_patch = mock.patch.dict(os.environ, {"ARACHNE_FLOW_MEDIA_ROOTS": ""})
         env_patch.start()
         self.addCleanup(env_patch.stop)
         self.auth = write(self.home, "auth.json", b'{"token": "sk-secret"}')

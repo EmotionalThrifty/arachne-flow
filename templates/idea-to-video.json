@@ -1,5 +1,5 @@
 {
-  "schema": "flowcanvas/1",
+  "schema": "arachne-flow/1",
   "name": "Idea to video",
   "description": "Turn a short idea into a cinematic video prompt, then a 6-second clip.",
   "nodes": [

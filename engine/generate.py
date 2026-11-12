@@ -18,7 +18,7 @@ from . import store as S
 from .executors import _llm_call   # review E-14: one sync bridge for both the LLM node and generation
 
 SKILL_PATH = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
-                          "skills", "flowcanvas", "SKILL.md")
+                          "skills", "arachne-flow", "SKILL.md")
 MAX_PROMPT_CHARS = 12000
 LLM_TIMEOUT_S = 30
 # Interactive UI work: at most two bounded proposals, including the single repair.
@@ -26,7 +26,7 @@ GENERATION_TIMEOUT_S = 65
 MAX_CATALOG_CHARS = 24000
 MAX_REPLY_TOKENS = 3072
 MAX_REPAIRS = 1
-GENERATE_TASK = "flowcanvas_generate"
+GENERATE_TASK = "arachne_flow_generate"
 GENERATE_TASK_VERSION = 3
 GENERATE_TASK_DEFAULTS = {"timeout": LLM_TIMEOUT_S, "reasoning_effort": "low"}
 
@@ -80,7 +80,7 @@ async def _complete(env, messages, model=None, provider=None):
         raise GenerateError("Hermes LLM access is not available in this process.", 503)
     _ensure_generate_task(env)
     raw_kwargs = {
-        "purpose": "flowcanvas generate",
+        "purpose": "arachne-flow generate",
         "task": GENERATE_TASK,
         "timeout": LLM_TIMEOUT_S,
         "max_tokens": MAX_REPLY_TOKENS,
@@ -120,8 +120,8 @@ async def _complete(env, messages, model=None, provider=None):
     except PermissionError:
         raise GenerateError(
             "Hermes refused the selected model/provider. Allow model and provider overrides under "
-            "plugins.entries.flowcanvas.llm.allow_model_override and "
-            "plugins.entries.flowcanvas.llm.allow_provider_override in config.yaml, or leave the "
+            "plugins.entries.arachne-flow.llm.allow_model_override and "
+            "plugins.entries.arachne-flow.llm.allow_provider_override in config.yaml, or leave the "
             "model at Hermes' current model.", 403) from None
     except GenerateError:
         raise

@@ -4,7 +4,7 @@ import { join } from 'node:path'
 import { pathToFileURL } from 'node:url'
 
 const defaultCacheBase = process.env.LOCALAPPDATA || process.env.XDG_CACHE_HOME || join(homedir(), '.cache')
-const cache = join(process.env.FLOWCANVAS_CACHE || join(defaultCacheBase, 'hermes', 'cache', 'flowcanvas-dev'), 'js')
+const cache = join(process.env.ARACHNE_FLOW_CACHE || join(defaultCacheBase, 'hermes', 'cache', 'arachne-flow-dev'), 'js')
 /** The SDK stub instance the plugin under test imported (same module URL, so same `host`). */
 export async function loadSdkStub() {
   return import(pathToFileURL(join(cache, 'sdk-stub.mjs')).href)

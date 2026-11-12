@@ -90,9 +90,15 @@ class TypesTest(unittest.TestCase):
 
 
 class GraphModelTest(unittest.TestCase):
+    def test_flows_saved_before_the_rename_still_validate(self):
+        legacy = dict(G.new_flow("Old"), schema="flowcanvas/1")
+        self.assertFalse([i for i in G.validate(legacy, {}) if "schema" in i["message"]])
+        other = dict(G.new_flow("Other"), schema="someone-else/1")
+        self.assertTrue([i for i in G.validate(other, {}) if "schema" in i["message"]])
+
     def test_new_flow_shape_and_ids(self):
         f = G.new_flow("Prompt to 3D")
-        self.assertEqual(f["schema"], "flowcanvas/1")
+        self.assertEqual(f["schema"], "arachne-flow/1")
         self.assertRegex(f["id"], r"^f_[0-9a-f]{10}$")
         self.assertEqual(f["nodes"], [])
         self.assertEqual(f["viewport"], {"x": 0, "y": 0, "zoom": 1})

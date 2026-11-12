@@ -3,7 +3,7 @@ import unittest
 
 import helpers
 
-JUNCTION = os.path.join(os.environ.get("HERMES_HOME", ""), "plugins", "flowcanvas", "runtime.py")
+JUNCTION = os.path.join(os.environ.get("HERMES_HOME", ""), "plugins", "arachne-flow", "runtime.py")
 
 
 def _junction_is_this_checkout() -> bool:

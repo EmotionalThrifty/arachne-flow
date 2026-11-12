@@ -276,18 +276,18 @@ class RouterSmokeTest(unittest.TestCase):
         from fastapi.testclient import TestClient
         api_mod = helpers.load_module(os.path.join("dashboard", "plugin_api.py"), "fc_plugin_api_smoke")
         app = FastAPI()
-        app.include_router(api_mod.router, prefix="/api/plugins/flowcanvas")
+        app.include_router(api_mod.router, prefix="/api/plugins/arachne-flow")
         client = TestClient(app)
-        self.assertEqual(client.get("/api/plugins/flowcanvas/x/ping").json()["ok"], True)
-        created = client.post("/api/plugins/flowcanvas/x/flows", json={"name": "Smoke"})
+        self.assertEqual(client.get("/api/plugins/arachne-flow/x/ping").json()["ok"], True)
+        created = client.post("/api/plugins/arachne-flow/x/flows", json={"name": "Smoke"})
         self.assertEqual(created.status_code, 200, created.text)
         flow_id = created.json()["flow"]["id"]
-        self.assertEqual(client.get(f"/api/plugins/flowcanvas/x/flows/{flow_id}").json()["flow"]["name"], "Smoke")
-        missing = client.get("/api/plugins/flowcanvas/x/flows/f_0000000000")
+        self.assertEqual(client.get(f"/api/plugins/arachne-flow/x/flows/{flow_id}").json()["flow"]["name"], "Smoke")
+        missing = client.get("/api/plugins/arachne-flow/x/flows/f_0000000000")
         self.assertEqual(missing.status_code, 404)
         # E1: the spike routes are gone; every endpoint goes through /x/<path>
-        self.assertEqual(client.get("/api/plugins/flowcanvas/health").status_code, 404)
-        self.assertEqual(client.post("/api/plugins/flowcanvas/dispatch", json={"tool": "read_file"}).status_code, 404)
+        self.assertEqual(client.get("/api/plugins/arachne-flow/health").status_code, 404)
+        self.assertEqual(client.post("/api/plugins/arachne-flow/dispatch", json={"tool": "read_file"}).status_code, 404)
         self.assertEqual({getattr(r, "path", "") for r in api_mod.router.routes}, {"/x/{path:path}"})
 
     def test_multipart_upload_is_the_same_upload(self):
@@ -298,10 +298,10 @@ class RouterSmokeTest(unittest.TestCase):
         from fastapi.testclient import TestClient
         api_mod = helpers.load_module(os.path.join("dashboard", "plugin_api.py"), "fc_plugin_api_multipart")
         app = FastAPI()
-        app.include_router(api_mod.router, prefix="/api/plugins/flowcanvas")
+        app.include_router(api_mod.router, prefix="/api/plugins/arachne-flow")
         client = TestClient(app)
         raw = png_bytes((40, 30))
-        res = client.post("/api/plugins/flowcanvas/x/uploads", files={"file": ("drop.png", raw, "image/png")})
+        res = client.post("/api/plugins/arachne-flow/x/uploads", files={"file": ("drop.png", raw, "image/png")})
         self.assertEqual(res.status_code, 200, res.text)
         got = res.json()
         self.assertEqual((got["name"], got["kind"], got["size"], got["deduped"]), ("drop.png", "image", len(raw), False))
@@ -311,20 +311,20 @@ class RouterSmokeTest(unittest.TestCase):
         uploads = os.path.realpath(os.path.join(data_dir, "uploads"))
         self.assertEqual(os.path.dirname(os.path.dirname(os.path.realpath(got["path"]))), uploads)  # <uploads>/<hash>/<name>
         # the JSON data_url body still reaches the same file: one record, deduped
-        again = client.post("/api/plugins/flowcanvas/x/uploads",
+        again = client.post("/api/plugins/arachne-flow/x/uploads",
                             json={"name": "drop.png", "data_url": "data:image/png;base64," + base64.b64encode(raw).decode()})
         self.assertEqual(again.status_code, 200, again.text)
         self.assertEqual((again.json()["path"], again.json()["deduped"]), (got["path"], True))
         # the route's own refusals surface unchanged
-        bad = client.post("/api/plugins/flowcanvas/x/uploads", files={"file": ("run.exe", b"\x00\x01", "application/octet-stream")})
+        bad = client.post("/api/plugins/arachne-flow/x/uploads", files={"file": ("run.exe", b"\x00\x01", "application/octet-stream")})
         self.assertEqual(bad.status_code, 400, bad.text)
         self.assertEqual(bad.json()["detail"]["code"], "bad_type")
-        nameless = client.post("/api/plugins/flowcanvas/x/uploads", data={"name": "drop.png"})
+        nameless = client.post("/api/plugins/arachne-flow/x/uploads", data={"name": "drop.png"})
         self.assertEqual(nameless.status_code, 400, nameless.text)
-        broken = client.post("/api/plugins/flowcanvas/x/uploads", content=b"--nope\r\n",
+        broken = client.post("/api/plugins/arachne-flow/x/uploads", content=b"--nope\r\n",
                              headers={"content-type": "multipart/form-data; boundary=nope"})
         self.assertEqual(broken.status_code, 400, broken.text)
-        elsewhere = client.post("/api/plugins/flowcanvas/x/flows", files={"file": ("x.png", b"\x89PNG", "image/png")})
+        elsewhere = client.post("/api/plugins/arachne-flow/x/flows", files={"file": ("x.png", b"\x89PNG", "image/png")})
         self.assertEqual(elsewhere.status_code, 400, elsewhere.text)   # multipart is the upload route's transport only
 
     def test_body_is_checked_before_parsing(self):

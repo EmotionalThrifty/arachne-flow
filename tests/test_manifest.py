@@ -64,7 +64,7 @@ class ConfigSchemaTest(unittest.TestCase):
         types = self.engine.nodes.types_by_name(env)
         for name in ("write_file", "patch"):
             self.assertNotIn(f"tool:{name}", types, name)
-        flow = {"schema": "flowcanvas/1", "id": "f_0000000001", "name": "hand written",
+        flow = {"schema": "arachne-flow/1", "id": "f_0000000001", "name": "hand written",
                 "nodes": [{"id": "n_000001", "type": "tool:write_file", "x": 0, "y": 0,
                            "params": {"path": "C:/Windows/Startup/evil.cmd", "content": "x"}}],
                 "edges": []}
@@ -76,7 +76,7 @@ class ConfigSchemaTest(unittest.TestCase):
         with open(os.path.join(helpers.ROOT, "README.md"), encoding="utf-8") as fh:
             text = fh.read()
         section = text.split("## Security and disclosure", 1)[1].split("\n## ", 1)[0]
-        for needle in ("Local files", "background thread", "cron", "blocked by name", "FLOWCANVAS_MEDIA_ROOTS",
+        for needle in ("Local files", "background thread", "cron", "blocked by name", "ARACHNE_FLOW_MEDIA_ROOTS",
                        "execute_blender_code"):
             self.assertIn(needle, section, needle)
         self.assertNotIn("Flow Canvas", " ".join(text.split()))
@@ -87,8 +87,8 @@ class ConfigSchemaTest(unittest.TestCase):
         install = text.split("## Install", 1)[1].split("\n## ", 1)[0]
         self.assertIn("hermes plugins install EmotionalThrifty/arachne-flow --enable", install)
         self.assertIn("not yet an accepted Hermes plugin-catalog entry", install)
-        self.assertIn("plugin ID remains `flowcanvas`", install)
-        self.assertNotIn("hermes plugins install flowcanvas --enable", install)
+        self.assertIn("plugin ID remains `arachne-flow`", install)
+        self.assertNotIn("hermes plugins install arachne-flow --enable", install)
         features = text.split("## Features", 1)[1].split("\n## ", 1)[0]
         self.assertIn("@nanogpt/mcp", features)
         dev = text.split("## Development", 1)[1].split("\n## ", 1)[0]

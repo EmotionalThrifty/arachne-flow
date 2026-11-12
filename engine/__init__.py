@@ -1,6 +1,6 @@
 """Arachne Flow engine: graph model, storage, node library, runner, REST and agent API.
 
-Loaded by path (package name ``flowcanvas_engine``) and re-imported when any file here changes.
+Loaded by path (package name ``arachne_flow_engine``) and re-imported when any file here changes.
 Modules import each other relatively. Keep NO long-lived state in module globals: use env.state.
 """
 from .version import VERSION  # noqa: F401

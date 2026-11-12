@@ -357,7 +357,7 @@ def check_generate(g: dict) -> list:
             or blank.get("pointerPrevented") or blank.get("quickSearch") or blank.get("contextMenu"):
         problems.append(f"blank-canvas composer swallows canvas gestures / cannot edit: {blank}")
     calls = (g.get("serverCalls") or {}).get("calls") or []
-    if len(calls) != 5 or any(c.get("purpose") != "flowcanvas generate" for c in calls) \
+    if len(calls) != 5 or any(c.get("purpose") != "arachne-flow generate" for c in calls) \
             or "model" in calls[0] or "provider" in calls[0] \
             or calls[2].get("model") != "z-ai/glm-5.3-flash" or calls[2].get("provider") != "custom":
         problems.append(f"fake LLM calls (new repair, selected existing, two failures): {calls}")
@@ -492,7 +492,7 @@ def check_popout(scenario: str, p: dict, flow_id: str) -> list:
     if scenario == "popin":
         if p.get("button"):
             problems.append("popin: an 'Open in new window' button is shown")
-        if p.get("handoffBefore") is not None or (p.get("navigated") or [None])[0] != "/flowcanvas" \
+        if p.get("handoffBefore") is not None or (p.get("navigated") or [None])[0] != "/arachne-flow" \
                 or p.get("flowName") != "Prompt to 3D":
             problems.append(f"popin: hand-off not taken once / wrong flow: {p}")
         f, a = p.get("focus") or {}, p.get("after") or {}

@@ -1,5 +1,5 @@
 {
-  "schema": "flowcanvas/1",
+  "schema": "arachne-flow/1",
   "name": "Local list cleanup",
   "description": "No model, tool or network call: JSON list → remove empty values → deduplicate → join. Keeps false and zero.",
   "nodes": [

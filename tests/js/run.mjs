@@ -11,7 +11,7 @@ import { spec } from 'node:test/reporters'
 const here = dirname(fileURLToPath(import.meta.url))
 const root = join(here, '..', '..')
 const defaultCacheBase = process.env.LOCALAPPDATA || process.env.XDG_CACHE_HOME || join(homedir(), '.cache')
-const cache = join(process.env.FLOWCANVAS_CACHE || join(defaultCacheBase, 'hermes', 'cache', 'flowcanvas-dev'), 'js')
+const cache = join(process.env.ARACHNE_FLOW_CACHE || join(defaultCacheBase, 'hermes', 'cache', 'arachne-flow-dev'), 'js')
 mkdirSync(cache, { recursive: true })
 
 const stubs = {

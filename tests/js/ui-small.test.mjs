@@ -57,7 +57,7 @@ test('a reloaded source window leaves the hand-off for the peer and stays a norm
     store.set(I.POPOUT_KEY, { flowId: 'f_9', at: Date.now(), from: 'win-other' })
     sdk.host.navigated.length = 0
     plugin.register({ register: () => {}, storage: storageOf(store), onDispose: (fn) => disposers.push(fn) })
-    assert.deepEqual(sdk.host.navigated, ['/flowcanvas'], 'a peer window still takes it and shows the page')
+    assert.deepEqual(sdk.host.navigated, ['/arachne-flow'], 'a peer window still takes it and shows the page')
     assert.equal(store.has(I.POPOUT_KEY), false, 'taken exactly once')
     assert.equal(I.SHARED.focusWindow, true)
     disposers.forEach((fn) => fn())

@@ -77,7 +77,7 @@ test('register() uses ctx.setTimeout and ctx.onEvent when the host offers them (
     const ctx = fakeCtx({ setTimeout: true, onEvent: true })
     plugin.register(ctx)
     assert.deepEqual(ctx.timers.map((t) => t.ms), [700, 2000, 4500], 'timers are scoped to the plugin')
-    assert.deepEqual(ctx.events.map((e) => e.type), ['plugin.flowcanvas.ui.open'])
+    assert.deepEqual(ctx.events.map((e) => e.type), ['plugin.arachne-flow.ui.open'])
     ctx.dispose()
     assert.ok(ctx.timers.every((t) => t.cleared), 'every scoped timer is cleared on dispose')
     assert.equal(ctx.events[0].off, true, 'the subscription went through ctx.onEvent, which the host disposes')

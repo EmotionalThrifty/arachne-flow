@@ -124,7 +124,7 @@ class ModelExtrasFallbackTest(unittest.TestCase):
     """EN-6: extra settings are checked against the model's catalog row before they are sent."""
 
     def setUp(self):
-        self.media_dir = scratch_dir("flowcanvas-media-")
+        self.media_dir = scratch_dir("arachne-flow-media-")
         self.payload = b"\x89PNG\r\n\x1a\nreview-only"
         path = self.path = os.path.join(self.media_dir, "style.png")
         with open(path, "wb") as fh:

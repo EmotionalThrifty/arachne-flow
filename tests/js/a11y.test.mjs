@@ -122,7 +122,7 @@ test('every dialog goes through the focus-trapping frame', () => {
 })
 
 test('the generate modal is a trapped dialog as well', () => {
-  const page = block('FlowCanvasPage')
+  const page = block('ArachneFlowPage')
   assert.match(page, /h\(DialogFrame, \{[\s\S]{0,200}Build with Hermes/, 'the generate modal uses the frame')
   assert.doesNotMatch(page, /className: 'fc-modal-scrim'/, 'no bare scrim left in the page')
 })

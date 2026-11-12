@@ -18,7 +18,7 @@ TOOLS = [
          description="Search the web."),
     tool("terminal", "terminal", {"command": {"type": "string"}}, required=["command"]),
     tool("kanban_create", "kanban", {"title": {"type": "string"}}),
-    tool("flow_run", "flowcanvas", {"flow": {"type": "string"}}),
+    tool("flow_run", "arachne-flow", {"flow": {"type": "string"}}),
     tool("mcp__nanogpt__nanogpt_image_generate", "mcp-nanogpt", {
         "prompt": {"type": "string", "minLength": 1},
         "n": {"type": "number"},
@@ -160,7 +160,7 @@ class ToolNodeTest(unittest.TestCase):
 
         ctx = ConfigCtx({"blocked_tools": ["Web_Search", "typo_blocked_tool"],
                          "allow_tools": ["Terminal", "Kanban_Create", "typo_allowed_tool"]})
-        with self.assertLogs("flowcanvas.nodes", level="WARNING") as cm:
+        with self.assertLogs("arachne-flow.nodes", level="WARNING") as cm:
             types = N.types_by_name(env_with(ctx))
         self.assertNotIn("tool:web_search", types)
         self.assertIn("tool:terminal", types)
@@ -174,7 +174,7 @@ class ToolNodeTest(unittest.TestCase):
     def test_unknown_policy_names_warn_only_once_per_name(self):
         ctx = ConfigCtx({"blocked_tools": ["Web_Search", "Unknown_Once_A"],
                          "allow_tools": ["Unknown_Once_B"]})
-        with self.assertLogs("flowcanvas.nodes", level="WARNING") as cm:
+        with self.assertLogs("arachne-flow.nodes", level="WARNING") as cm:
             N.list_node_types(env_with(ctx), fresh=True)
             N.list_node_types(env_with(ctx), fresh=True)
         self.assertEqual(len(cm.output), 1)

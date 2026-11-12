@@ -17,7 +17,7 @@ Four independent findings, each pinned to one test class:
    silently return corrupted bytes, and must not rewrite the old file.
 
 Every test drives the real ``engine.api.handle`` against real saved run records and writes only
-under a fresh ``FLOWCANVAS_DATA_DIR`` plus throwaway scratch folders.
+under a fresh ``ARACHNE_FLOW_DATA_DIR`` plus throwaway scratch folders.
 """
 from __future__ import annotations
 
@@ -67,7 +67,7 @@ def clip(text: str, limit: int = 240) -> str:
 
 class ValueReviewTest(unittest.TestCase):
     def setUp(self):
-        self._old_data_dir = os.environ.get("FLOWCANVAS_DATA_DIR")
+        self._old_data_dir = os.environ.get("ARACHNE_FLOW_DATA_DIR")
         self._scratch_dirs: list[str] = []
         self._links: list[str] = []
         self.data_dir = helpers.temp_data_dir()
@@ -83,9 +83,9 @@ class ValueReviewTest(unittest.TestCase):
         for folder in self._scratch_dirs:
             shutil.rmtree(folder, ignore_errors=True)
         if self._old_data_dir is None:
-            os.environ.pop("FLOWCANVAS_DATA_DIR", None)
+            os.environ.pop("ARACHNE_FLOW_DATA_DIR", None)
         else:
-            os.environ["FLOWCANVAS_DATA_DIR"] = self._old_data_dir
+            os.environ["ARACHNE_FLOW_DATA_DIR"] = self._old_data_dir
         shutil.rmtree(getattr(self, "data_dir", "") or os.path.join(tempfile.gettempdir(), "__fc_never__"),
                       ignore_errors=True)
 
@@ -181,7 +181,7 @@ class ValueReviewTest(unittest.TestCase):
         self.assertEqual(self.get_value(limit="100")["chunk"], "ordinary run")   # endpoint control
 
         secret = "JUNCTION-SECRET-" + "j" * 6000
-        target = self._scratch("flowcanvas-review-junction-")
+        target = self._scratch("arachne-flow-review-junction-")
         with open(os.path.join(target, "secret.txt"), "w", encoding="utf-8", newline="") as fh:
             fh.write(secret)
 

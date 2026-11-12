@@ -31,7 +31,7 @@ from . import store as S
 from . import timings as T
 from . import types as ptypes
 
-logger = logging.getLogger("flowcanvas.runner")
+logger = logging.getLogger("arachne-flow.runner")
 
 DEFAULT_MAX_PARALLEL = 3
 DEFAULT_NODE_TIMEOUT_S = 120.0
@@ -91,7 +91,7 @@ def _config_number(env, key: str, default: float) -> float:
         except (TypeError, ValueError):
             pass
         except Exception as exc:  # noqa: BLE001 - config errors fall back to defaults
-            logger.warning("flowcanvas: config %s unreadable: %s", key, exc)
+            logger.warning("arachne-flow: config %s unreadable: %s", key, exc)
     return default
 
 
@@ -113,23 +113,23 @@ def ensure_startup(env) -> None:
     try:
         fixed = S.mark_interrupted(env, active_ids=lambda: _active(env), boot=boot_token(env))
         if fixed:
-            logger.info("flowcanvas: marked %d interrupted run(s)", len(fixed))
+            logger.info("arachne-flow: marked %d interrupted run(s)", len(fixed))
     except Exception as exc:  # noqa: BLE001 - never block the plugin on housekeeping
-        logger.warning("flowcanvas: interrupted-run cleanup failed: %s", exc)
+        logger.warning("arachne-flow: interrupted-run cleanup failed: %s", exc)
     try:
         swept = S.prune_stale_files(env)
         if swept["trash"] or swept["uploads"]:
-            logger.info("flowcanvas: swept %d trashed flow(s) and %d unused upload(s)",
+            logger.info("arachne-flow: swept %d trashed flow(s) and %d unused upload(s)",
                         swept["trash"], swept["uploads"])
     except Exception as exc:  # noqa: BLE001 - housekeeping must never block a run
-        logger.warning("flowcanvas: trash/upload sweep failed: %s", exc)
+        logger.warning("arachne-flow: trash/upload sweep failed: %s", exc)
 
 
 def _emit(env, event: str, payload: dict) -> None:
     try:
         env.emit(event, payload)
     except Exception as exc:  # noqa: BLE001 - UI delivery is best effort
-        logger.debug("flowcanvas: emit %s failed: %s", event, exc)
+        logger.debug("arachne-flow: emit %s failed: %s", event, exc)
 
 
 # ----------------------------------------------------------------- values
@@ -663,7 +663,7 @@ def cache_put(env, key: str, node: dict, outputs: dict, flow_id: str = None) -> 
         except (OSError, TypeError, ValueError) as exc:
             if media_folder and not published:
                 shutil.rmtree(media_folder, ignore_errors=True)
-            logger.info("flowcanvas: cache write skipped: %s", exc)
+            logger.info("arachne-flow: cache write skipped: %s", exc)
 
 
 def node_cacheable(node: dict, spec: dict, fresh: bool) -> bool:
@@ -815,7 +815,7 @@ class _Execution:
         try:
             S.save_run(self.env, self.handle.snapshot())
         except Exception as exc:  # noqa: BLE001 - a failed save must not kill the run
-            logger.warning("flowcanvas: saving run %s failed: %s", self.run["id"], exc)
+            logger.warning("arachne-flow: saving run %s failed: %s", self.run["id"], exc)
 
     def set_node(self, nid: str, **fields):
         with self.handle.lock:
@@ -963,7 +963,7 @@ class _Execution:
         except X.NodeError as exc:
             self.set_node(nid, status="error", error=str(exc), ms=int((time.monotonic() - started) * 1000))
         except Exception as exc:  # noqa: BLE001 - any bug in one node must not kill the run
-            logger.exception("flowcanvas: node %s crashed", nid)
+            logger.exception("arachne-flow: node %s crashed", nid)
             self.set_node(nid, status="error", error=f"{type(exc).__name__}: {exc}",
                           ms=int((time.monotonic() - started) * 1000))
 
@@ -1097,7 +1097,7 @@ class _Execution:
         except X.NodeError as exc:
             self.set_node(fid, status="error", error=str(exc), ms=int((time.monotonic() - started) * 1000))
         except Exception as exc:  # noqa: BLE001 - a loop bug must not kill the run
-            logger.exception("flowcanvas: For each %s crashed", fid)
+            logger.exception("arachne-flow: For each %s crashed", fid)
             self.set_node(fid, status="error", error=f"{type(exc).__name__}: {exc}",
                           ms=int((time.monotonic() - started) * 1000))
 
@@ -1132,7 +1132,7 @@ class _Execution:
         except X.NodeError as exc:
             return {"status": "error", "error": str(exc), "ms": ms()}, None
         except Exception as exc:  # noqa: BLE001
-            logger.exception("flowcanvas: node %s item %s crashed", nid, index + 1)
+            logger.exception("arachne-flow: node %s item %s crashed", nid, index + 1)
             return {"status": "error", "error": f"{type(exc).__name__}: {exc}", "ms": ms()}, None
 
     async def run_loop(self, fid: str, items: list):
@@ -1280,7 +1280,7 @@ class _Execution:
                     continue
                 if verdict == "run":
                     remaining.remove(nid)
-                    task = asyncio.create_task(self.run_node(nid), name=f"flowcanvas:{nid}")
+                    task = asyncio.create_task(self.run_node(nid), name=f"arachne-flow:{nid}")
                     running[nid] = task
                     h.tasks[nid] = task
             if not running:
@@ -1345,15 +1345,15 @@ def _run_loop(coro, name: str):
 
 def _thread_main(env, flow, types, handle: RunHandle):
     try:
-        _run_loop(_Execution(env, flow, types, handle).execute(), f"flowcanvas-run-{handle.run.get('id')}")
+        _run_loop(_Execution(env, flow, types, handle).execute(), f"arachne-flow-run-{handle.run.get('id')}")
     except Exception as exc:  # noqa: BLE001 - last line of defence: record, never leave 'running'
-        logger.exception("flowcanvas: run %s crashed", handle.run.get("id"))
+        logger.exception("arachne-flow: run %s crashed", handle.run.get("id"))
         with handle.lock:
             handle.run.update(status="error", error=f"internal error: {exc}", finished_at=G.now_iso())
         try:
             S.save_run(env, handle.snapshot())
         except Exception:  # noqa: BLE001
-            logger.exception("flowcanvas: could not save crashed run")
+            logger.exception("arachne-flow: could not save crashed run")
         _emit(env, "run.finished", {"run_id": handle.run.get("id"), "flow_id": handle.run.get("flow_id"),
                                     "status": "error", "ms": handle.run.get("ms")})
     finally:
@@ -1381,7 +1381,7 @@ def start_run(env, flow_id: str, target_node: str = None, fresh: bool = False, i
     # mode) so every tool call of the run sees them; asyncio tasks and to_thread copy it on from there.
     snapshot = contextvars.copy_context()
     handle.thread = threading.Thread(target=snapshot.run, args=(_thread_main, env, effective, types, handle),
-                                     name=f"flowcanvas-run-{run['id']}", daemon=True)
+                                     name=f"arachne-flow-run-{run['id']}", daemon=True)
     handle.thread.start()
     return handle
 

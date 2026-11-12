@@ -16,7 +16,7 @@ from . import executors as X
 from . import graph as G
 from . import types as ptypes
 
-logger = logging.getLogger("flowcanvas.nodes")
+logger = logging.getLogger("arachne-flow.nodes")
 
 TOOL_PREFIX = "tool:"
 CACHE_TTL_S = 30.0
@@ -255,7 +255,7 @@ def _config(env, key: str, default=None):
     try:
         value = getter(key, default)
     except Exception as exc:  # noqa: BLE001 - a broken config read must not hide every tool
-        logger.warning("flowcanvas: reading config %s failed: %s", key, exc)
+        logger.warning("arachne-flow: reading config %s failed: %s", key, exc)
         return default
     return default if value is None else value
 
@@ -327,7 +327,7 @@ def _warn_unknown_policy_names(env, available: list, blocked: set, allowed: set)
     unknown = sorted(n for n in checked if n not in known and n not in _WARNED_UNKNOWN_POLICY_NAMES)
     if unknown:
         _WARNED_UNKNOWN_POLICY_NAMES.update(unknown)
-        logger.warning("flowcanvas: unknown tool name(s) in blocked_tools/allow_tools: %s", ", ".join(unknown))
+        logger.warning("arachne-flow: unknown tool name(s) in blocked_tools/allow_tools: %s", ", ".join(unknown))
 
 
 # ----------------------------------------------------------------- registry access
@@ -675,7 +675,7 @@ def list_node_types(env, tools=None, fresh: bool = False) -> list:
         try:
             result.append(tool_node_type(tool, peers))
         except Exception as exc:  # noqa: BLE001 - one odd schema must not hide the rest
-            logger.warning("flowcanvas: skipping tool %s: %s", tool.get("name"), exc)
+            logger.warning("arachne-flow: skipping tool %s: %s", tool.get("name"), exc)
     result.extend(_extra_types(env, usable, available))
     for spec in result:
         spec.setdefault("kind", "builtin")

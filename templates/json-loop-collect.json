@@ -1,5 +1,5 @@
 {
-  "schema": "flowcanvas/1",
+  "schema": "arachne-flow/1",
   "name": "JSON objects through a loop",
   "description": "No model, tool or network call: a JSON list → For each → pick fields → build typed objects → Collect. To inspect inputs, enable Record wired inputs on Build object before running.",
   "nodes": [

@@ -1,5 +1,5 @@
 {
-  "schema": "flowcanvas/1",
+  "schema": "arachne-flow/1",
   "name": "Edit an image",
   "description": "Change a picture with a plain-language instruction.",
   "nodes": [

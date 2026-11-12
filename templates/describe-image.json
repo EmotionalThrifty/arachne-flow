@@ -1,5 +1,5 @@
 {
-  "schema": "flowcanvas/1",
+  "schema": "arachne-flow/1",
   "name": "Describe an image",
   "description": "Pick a local image and let a vision model describe it.",
   "nodes": [

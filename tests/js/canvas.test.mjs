@@ -291,8 +291,8 @@ test('register contributes the route, the sidebar entry and palette commands', a
   plugin.register({ register: (c) => got.push(c), storage: { get: (k, d) => d, set() {} }, onDispose() {} })
   const areas = got.map((c) => c.area)
   assert.ok(areas.includes('routes') && areas.includes('sidebar.nav'))
-  assert.equal(got.find((c) => c.area === 'routes').data.path, '/flowcanvas')
-  assert.deepEqual(got.filter((c) => c.area === 'palette').map((c) => c.data.id), ['flowcanvas.open', 'flowcanvas.run'])
+  assert.equal(got.find((c) => c.area === 'routes').data.path, '/arachne-flow')
+  assert.deepEqual(got.filter((c) => c.area === 'palette').map((c) => c.data.id), ['arachne-flow.open', 'arachne-flow.run'])
 })
 
 test('templates: yours vs built-in, and which inputs "Clear input values" empties (G5)', () => {
@@ -342,8 +342,8 @@ test('pop-out hand-off: fresh entries open the flow once, stale or malformed one
   const plugin = await loadPlugin()
   const disposers = []
 
-  const FOCUS_WINDOW_KEY = 'hermes.plugin.flowcanvas.focusWindow'
-  const WINDOW_ID_KEY = 'hermes.plugin.flowcanvas.windowId'
+  const FOCUS_WINDOW_KEY = 'hermes.plugin.arachne-flow.focusWindow'
+  const WINDOW_ID_KEY = 'hermes.plugin.arachne-flow.windowId'
   const createSessionStorage = () => {
     const map = new Map()
     return {
@@ -364,7 +364,7 @@ test('pop-out hand-off: fresh entries open the flow once, stale or malformed one
     sdk.host.navigated.length = 0
     store.set(I.POPOUT_KEY, { flowId: 'f_4', at: Date.now() })
     plugin.register({ register: () => {}, storage, onDispose: (fn) => disposers.push(fn) })
-    assert.deepEqual(sdk.host.navigated, ['/flowcanvas'], 'a fresh hand-off navigates to the page at registration')
+    assert.deepEqual(sdk.host.navigated, ['/arachne-flow'], 'a fresh hand-off navigates to the page at registration')
     assert.equal(store.has(I.POPOUT_KEY), false)
     assert.equal(I.SHARED.focusWindow, true, 'the new window becomes an Arachne Flow-only window')
     assert.ok(storageA.getItem(WINDOW_ID_KEY), 'window A holds WINDOW_ID_KEY')
@@ -498,12 +498,12 @@ test('ui.open from /flow open navigates to the page; the subscription is dispose
   const disposers = []
   plugin.register({ register: () => {}, storage: { get: (k, d) => d, set() {} }, onDispose: (fn) => disposers.push(fn) })
   sdk.host.navigated.length = 0
-  sdk.__emitHostEvent('plugin.flowcanvas.ui.open', { flow_id: 'f_abc' })
-  assert.deepEqual(sdk.host.navigated, ['/flowcanvas'])
+  sdk.__emitHostEvent('plugin.arachne-flow.ui.open', { flow_id: 'f_abc' })
+  assert.deepEqual(sdk.host.navigated, ['/arachne-flow'])
   assert.ok(disposers.length >= 1, 'the event subscription is disposed with the plugin')
   disposers.forEach((fn) => fn())
-  sdk.__emitHostEvent('plugin.flowcanvas.ui.open', { flow_id: 'f_abc' })
-  assert.deepEqual(sdk.host.navigated, ['/flowcanvas'], 'no navigation after dispose')
+  sdk.__emitHostEvent('plugin.arachne-flow.ui.open', { flow_id: 'f_abc' })
+  assert.deepEqual(sdk.host.navigated, ['/arachne-flow'], 'no navigation after dispose')
 })
 
 test('paramInfo explains every setting: description or type hint, default, wire hint', () => {

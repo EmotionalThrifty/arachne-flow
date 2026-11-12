@@ -72,14 +72,14 @@ class RegexSafetyTest(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.data_dir = helpers.temp_data_dir()
-        cls.cache_dir = tempfile.mkdtemp(prefix="flowcanvas-test-cache-")
+        cls.cache_dir = tempfile.mkdtemp(prefix="arachne-flow-test-cache-")
 
     def run_worker(self, mode, pattern=EVIL_PATTERN, count=EVIL_TEXT_A_COUNT,
                    timeout=WORKER_TIMEOUT_S):
         label = "check_condition('regex', ...)" if mode == "if" else "switch_match('regex', ...)"
         env = dict(os.environ)
-        env["FLOWCANVAS_DATA_DIR"] = self.data_dir
-        env["FLOWCANVAS_CACHE"] = self.cache_dir
+        env["ARACHNE_FLOW_DATA_DIR"] = self.data_dir
+        env["ARACHNE_FLOW_CACHE"] = self.cache_dir
         env["PYTHONDONTWRITEBYTECODE"] = "1"
         cmd = [sys.executable, "-c", _CHILD, TESTS, mode, pattern, str(count)]
         proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE,

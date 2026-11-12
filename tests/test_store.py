@@ -15,7 +15,7 @@ S, G = E.store, E.graph
 
 def make_env(templates=None):
     data = helpers.temp_data_dir()
-    tdir = tempfile.mkdtemp(prefix="flowcanvas-tpl-")
+    tdir = tempfile.mkdtemp(prefix="arachne-flow-tpl-")
     for tid, body in (templates or {}).items():
         with open(os.path.join(tdir, tid + ".json"), "w", encoding="utf-8") as fh:
             json.dump(body, fh)
@@ -29,7 +29,7 @@ def run_record(flow_id, run_id=None, status="done", started="2026-11-05T01:00:00
 
 
 TEMPLATE = {
-    "schema": "flowcanvas/1", "name": "Prompt to image", "description": "demo",
+    "schema": "arachne-flow/1", "name": "Prompt to image", "description": "demo",
     "nodes": [{"id": "n_000001", "type": "input.text", "x": 80, "y": 80, "params": {"value": "robot"}},
               {"id": "n_000002", "type": "tool:image_generate", "x": 380, "y": 80, "params": {}}],
     "edges": [{"id": "e_000001", "from": {"node": "n_000001", "port": "text"},
@@ -45,7 +45,7 @@ class FlowCrudTest(unittest.TestCase):
 
     def test_data_dir_from_env_var_when_env_has_none(self):
         env = E.env.Env(state={})
-        self.assertEqual(S.data_dir(env), os.environ["FLOWCANVAS_DATA_DIR"])
+        self.assertEqual(S.data_dir(env), os.environ["ARACHNE_FLOW_DATA_DIR"])
 
     def test_create_get_roundtrip(self):
         flow = S.create_flow(self.env, name="Mine")

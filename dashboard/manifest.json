@@ -1,5 +1,5 @@
 {
-  "name": "flowcanvas",
+  "name": "arachne-flow",
   "label": "Arachne Flow",
   "api": "plugin_api.py",
   "tab": {"hidden": true}

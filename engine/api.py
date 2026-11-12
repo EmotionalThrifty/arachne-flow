@@ -1,4 +1,4 @@
-"""REST routes under /api/plugins/flowcanvas/x/<path>.
+"""REST routes under /api/plugins/arachne-flow/x/<path>.
 
 Every handler returns JSON-safe dicts. Errors become HTTPException with a readable ``detail``:
 404 not found, 409 revision conflict (``{"code": "conflict", "current_revision"}``), 400 bad input.
@@ -38,7 +38,7 @@ from . import timings as T
 from . import types as ptypes
 from .version import VERSION
 
-logger = logging.getLogger("flowcanvas.api")
+logger = logging.getLogger("arachne-flow.api")
 
 MAX_INLINE_BYTES = 8 * 1024 * 1024
 # The lightbox's 3D viewer needs the whole .glb; generated models are often 10-30 MB (07.11.).
@@ -58,7 +58,7 @@ def _emit(env, event: str, payload: dict) -> None:
     try:
         env.emit(event, payload)
     except Exception as exc:  # noqa: BLE001 - UI delivery is best effort
-        logger.debug("flowcanvas: %s not delivered: %s", event, exc)
+        logger.debug("arachne-flow: %s not delivered: %s", event, exc)
 
 
 def _emit_changed(env, flow: dict, origin: str, **extra) -> None:
@@ -121,7 +121,7 @@ def file_payload(path: str, thumb: int = 0) -> dict:
             out["thumb"] = True
             return out
         except Exception as exc:  # noqa: BLE001 - fall back to the raw file below
-            logger.info("flowcanvas: thumbnail failed for %s: %s", path, exc)
+            logger.info("arachne-flow: thumbnail failed for %s: %s", path, exc)
     if size <= (MAX_MODEL_INLINE_BYTES if kind == "model3d" else MAX_INLINE_BYTES):
         with open(path, "rb") as fh:
             out["data_url"] = f"data:{mime};base64," + base64.b64encode(fh.read()).decode()

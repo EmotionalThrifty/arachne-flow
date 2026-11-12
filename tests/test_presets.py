@@ -42,9 +42,9 @@ def specs(tools=TOOLS):
 
 class PresetTest(unittest.TestCase):
     def setUp(self):
-        self.tmp = tempfile.TemporaryDirectory(prefix="flowcanvas-presets-")
+        self.tmp = tempfile.TemporaryDirectory(prefix="arachne-flow-presets-")
         self.addCleanup(self.tmp.cleanup)
-        os.environ["FLOWCANVAS_DATA_DIR"] = self.tmp.name  # fake tool files live where real ones do: in Arachne Flow's (or Hermes') folders (review E-3)
+        os.environ["ARACHNE_FLOW_DATA_DIR"] = self.tmp.name  # fake tool files live where real ones do: in Arachne Flow's (or Hermes') folders (review E-3)
         self.out = os.path.join(self.tmp.name, "outputs")
         os.makedirs(self.out)
 

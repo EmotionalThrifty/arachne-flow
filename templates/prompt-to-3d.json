@@ -1,5 +1,5 @@
 {
-  "schema": "flowcanvas/1",
+  "schema": "arachne-flow/1",
   "name": "Prompt → image → 3D",
   "description": "Turn an idea into an image prompt, an image, three more views of it and a 3D model built by Tripo H3.0 from all four views (paid image, edit and 3D generation; the 3D step can take several minutes).",
   "nodes": [

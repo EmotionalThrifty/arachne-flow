@@ -21,7 +21,7 @@ from . import graph as G
 from . import media as M
 from . import types as ptypes
 
-logger = logging.getLogger("flowcanvas.executors")
+logger = logging.getLogger("arachne-flow.executors")
 
 DEFAULT_TIMEOUT_S = 120.0
 _TEXT_KEYS = ("text", "content", "result", "output", "answer", "message", "summary", "markdown", "response")
@@ -219,7 +219,7 @@ def collect_media(result, nctx: NodeContext) -> list:
         try:
             found.append(M.ingest(ref, nctx.out_dir, f"{stem}-mm{i}", allow_download=nctx.allow_download))
         except Exception as exc:  # noqa: BLE001
-            logger.info("flowcanvas: multimodal part skipped: %s", exc)
+            logger.info("arachne-flow: multimodal part skipped: %s", exc)
             nctx.log(f"media skipped: {exc}")
     if not found:
         found = M.extract_media(result, nctx.out_dir, stem, allow_download=nctx.allow_download, log=nctx.log)
@@ -394,7 +394,7 @@ async def _llm_complete(env, node, spec, inputs, nctx):
     if not _blank(params.get("system")):
         messages.append({"role": "system", "content": str(params["system"])})
     messages.append({"role": "user", "content": prompt})
-    kwargs = {"purpose": "flowcanvas node"}
+    kwargs = {"purpose": "arachne-flow node"}
     for key in ("provider", "model"):
         if not _blank(params.get(key)):
             kwargs[key] = str(params[key]).strip()
@@ -415,7 +415,7 @@ async def _llm_complete(env, node, spec, inputs, nctx):
         result = await call_blocking(_llm_call, llm, messages, kwargs, timeout=timeout + 5, what="LLM call")
     except PermissionError as exc:  # PluginLlmTrustError: model choice not allowed in config.yaml
         raise NodeError(
-            "Hermes does not allow Arachne Flow to pick a model. Set plugins.entries.flowcanvas.llm."
+            "Hermes does not allow Arachne Flow to pick a model. Set plugins.entries.arachne-flow.llm."
             "allow_model_override and allow_provider_override to true in config.yaml, or set Model back to "
             f"'Hermes default'. ({exc})") from None
     except Exception as exc:  # noqa: BLE001 - provider errors become node errors

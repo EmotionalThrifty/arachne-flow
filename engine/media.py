@@ -20,7 +20,7 @@ from urllib.parse import unquote, urlparse
 
 from . import types as ptypes
 
-logger = logging.getLogger("flowcanvas.media")
+logger = logging.getLogger("arachne-flow.media")
 
 MAX_DOWNLOAD_BYTES = 200 * 1024 * 1024
 MAX_DATA_URL_BYTES = 8 * 1024 * 1024
@@ -284,7 +284,7 @@ async def _http_get_async(url: str, dest: str, timeout: float, max_bytes: int) -
         for _ in range(5):
             if not is_safe_url(current):
                 raise MediaError(f"refusing to download from a private or invalid address: {current}")
-            async with client.stream("GET", current, headers={"User-Agent": "hermes-flowcanvas/1"}) as resp:
+            async with client.stream("GET", current, headers={"User-Agent": "hermes-arachne-flow/1"}) as resp:
                 if resp.status_code in (301, 302, 303, 307, 308) and resp.headers.get("location"):
                     current = str(resp.url.join(resp.headers["location"]))
                     continue
@@ -343,10 +343,10 @@ def _hermes_home() -> str:
 
 def default_roots() -> tuple:
     """Folders a tool result may point into: Hermes' home (tool caches such as ``cache/audio``) and Arachne Flow's
-    data dir (outputs, uploads, cache), plus the folders in ``$FLOWCANVAS_MEDIA_ROOTS`` (``os.pathsep``-separated,
+    data dir (outputs, uploads, cache), plus the folders in ``$ARACHNE_FLOW_MEDIA_ROOTS`` (``os.pathsep``-separated,
     e.g. a custom TTS output folder). Anything else on disk is not the tool's output."""
     from . import store
-    extra = [r.strip() for r in os.environ.get("FLOWCANVAS_MEDIA_ROOTS", "").split(os.pathsep) if r.strip()]
+    extra = [r.strip() for r in os.environ.get("ARACHNE_FLOW_MEDIA_ROOTS", "").split(os.pathsep) if r.strip()]
     roots = []
     for root in (_hermes_home(), store.data_dir(None), *extra):
         if root and root not in roots:
@@ -386,7 +386,7 @@ _OWN_SECRET_NAMES = ("messaging-secret",)
 _OWN_SECRET_PREFIXES = (".messaging-key-",)
 # (real paths the user picked in the canvas for the flow being run, folders of this run's own outputs);
 # set per node by executors.execute.
-_APPROVED = contextvars.ContextVar("flowcanvas_approved_paths", default=(frozenset(), ()))
+_APPROVED = contextvars.ContextVar("arachne_flow_approved_paths", default=(frozenset(), ()))
 
 
 def _hermes_dirs() -> list:
@@ -620,7 +620,7 @@ def extract_media(result, out_dir: str, stem: str, allow_download: bool = True,
         try:
             media.append(ingest(ref, out_dir, f"{stem}-{len(media)}", allow_download=allow_download, roots=roots))
         except Exception as exc:  # noqa: BLE001 - one broken link must not fail the node
-            logger.info("flowcanvas: skipped media %s: %s", ref[:120], exc)
+            logger.info("arachne-flow: skipped media %s: %s", ref[:120], exc)
             if log is not None:
                 log(f"media skipped: {exc}")
         if len(media) >= limit:

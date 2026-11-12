@@ -223,13 +223,13 @@ class GraphMediaTest(unittest.TestCase):
 
 class RunnerMediaTest(unittest.TestCase):
     def setUp(self):
-        self.tmp = tempfile.TemporaryDirectory(prefix="flowcanvas-g8-")
+        self.tmp = tempfile.TemporaryDirectory(prefix="arachne-flow-g8-")
         self.addCleanup(self.tmp.cleanup)
         self.path_a = write_file(self.tmp.name, "a.png", b"\x89PNG\r\n\x1a\nA")
         self.path_b = write_file(self.tmp.name, "b.png", b"\x89PNG\r\n\x1a\nB")
 
     def make_env(self):
-        os.environ["FLOWCANVAS_DATA_DIR"] = self.tmp.name  # fake tool files live where real ones do: in Arachne Flow's (or Hermes') folders (review E-3)
+        os.environ["ARACHNE_FLOW_DATA_DIR"] = self.tmp.name  # fake tool files live where real ones do: in Arachne Flow's (or Hermes') folders (review E-3)
         captured = []
 
         def multi(args):
@@ -302,7 +302,7 @@ class RunnerMediaTest(unittest.TestCase):
 
 class MediaConversionTest(unittest.TestCase):
     def setUp(self):
-        self.tmp = tempfile.TemporaryDirectory(prefix="flowcanvas-g8-")
+        self.tmp = tempfile.TemporaryDirectory(prefix="arachne-flow-g8-")
         self.addCleanup(self.tmp.cleanup)
         self.local_path = write_file(self.tmp.name, "local.png")
         self.local = M.from_local(self.local_path, copy=False)
@@ -347,11 +347,11 @@ class MediaConversionTest(unittest.TestCase):
 
 class PresetMediaTest(unittest.TestCase):
     def setUp(self):
-        self.tmp = tempfile.TemporaryDirectory(prefix="flowcanvas-g8-")
+        self.tmp = tempfile.TemporaryDirectory(prefix="arachne-flow-g8-")
         self.addCleanup(self.tmp.cleanup)
         self.out = os.path.join(self.tmp.name, "outputs")
         os.makedirs(self.out)
-        os.environ["FLOWCANVAS_DATA_DIR"] = self.tmp.name  # fake tool files live where real ones do: in Arachne Flow's (or Hermes') folders (review E-3)
+        os.environ["ARACHNE_FLOW_DATA_DIR"] = self.tmp.name  # fake tool files live where real ones do: in Arachne Flow's (or Hermes') folders (review E-3)
         self.local_path = write_file(self.tmp.name, "local.png")
         self.local = M.from_local(self.local_path, copy=False)
         self.remote = M.make_media(self.local_path, kind="image", source="https://example.com/remote.png")

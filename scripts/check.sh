@@ -11,7 +11,7 @@ default_cache_base() {
   else printf '%s\n' "${HOME:-/tmp}/.cache"
   fi
 }
-CACHE_DIR="$(to_unix_path "${FLOWCANVAS_CACHE:-$(default_cache_base)/hermes/cache/flowcanvas-dev}")"
+CACHE_DIR="$(to_unix_path "${ARACHNE_FLOW_CACHE:-$(default_cache_base)/hermes/cache/arachne-flow-dev}")"
 mkdir -p "$CACHE_DIR"
 fail=0
 step() { echo; echo "== $1"; }

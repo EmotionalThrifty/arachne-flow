@@ -21,7 +21,7 @@ def load_module(rel_path: str, name: str):
 
 def load_backend():
     """backend.py the way plugin_api.py loads it (shares runtime + engine reload state)."""
-    return load_module("backend.py", "flowcanvas_backend_test")
+    return load_module("backend.py", "arachne_flow_backend_test")
 
 
 class FakeCtx:
@@ -39,9 +39,9 @@ class FakeCtx:
 
 
 def temp_data_dir():
-    """A throwaway FLOWCANVAS_DATA_DIR; tests must never write into the real plugin-data."""
-    path = tempfile.mkdtemp(prefix="flowcanvas-test-")
-    os.environ["FLOWCANVAS_DATA_DIR"] = path
+    """A throwaway ARACHNE_FLOW_DATA_DIR; tests must never write into the real plugin-data."""
+    path = tempfile.mkdtemp(prefix="arachne-flow-test-")
+    os.environ["ARACHNE_FLOW_DATA_DIR"] = path
     return path
 
 

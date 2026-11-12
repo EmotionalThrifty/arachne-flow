@@ -2,7 +2,7 @@
 
 ![Arachne Flow — a comic-style weaver connecting workflow nodes](docs/banner.png)
 
-Arachne Flow (`flowcanvas`) adds a visual workspace to Hermes Desktop where you connect tools, AI models, and media files like a wiring diagram — and run the whole pipeline from the canvas, from chat, or on a schedule.
+Arachne Flow (`arachne-flow`) adds a visual workspace to Hermes Desktop where you connect tools, AI models, and media files like a wiring diagram — and run the whole pipeline from the canvas, from chat, or on a schedule.
 
 ## What you can build
 
@@ -21,8 +21,8 @@ hermes plugins install EmotionalThrifty/arachne-flow --enable
 ```
 
 For a reproducible install, append `--ref <full-40-character-commit-sha>` using a commit from this repository.
-The plugin ID remains `flowcanvas`; the repository name is `arachne-flow`. Installing by the bare catalog
-name `flowcanvas` is not promised until a catalog entry has been accepted.
+The plugin ID remains `arachne-flow`; the repository name is `arachne-flow`. Installing by the bare catalog
+name `arachne-flow` is not promised until a catalog entry has been accepted.
 
 Restart Hermes Desktop through your normal launcher after installation. **Arachne Flow** appears in the
 sidebar, `/flow` is available in chat, and the agent can use the `flow_*` tools.
@@ -89,7 +89,7 @@ It saves the flow and opens a Hermes chat pre-filled with the flow name and ID; 
 
 **Run from chat or cron:**
 Use `/flow` to list flows, `/flow run <name|id> [--fresh]` to execute one, `/flow open [name|id]` to open it on the canvas, or `/flow status <run_id>` for the latest state.
-In chat or scheduled jobs, Hermes uses `flow_list`, `flow_get`, `flow_node_types`, `flow_apply`, `flow_run`, `flow_status`, and `flow_template_save` (guided by the bundled `flowcanvas:flowcanvas` skill).
+In chat or scheduled jobs, Hermes uses `flow_list`, `flow_get`, `flow_node_types`, `flow_apply`, `flow_run`, `flow_status`, and `flow_template_save` (guided by the bundled `arachne-flow:arachne-flow` skill).
 
 ## Features — what makes it different
 
@@ -129,7 +129,7 @@ In chat or scheduled jobs, Hermes uses `flow_list`, `flow_get`, `flow_node_types
   A **Browse…** pick is signed for that flow, node and file (`picked_files`, HMAC with the local key); a path set by the agent (`flow_apply`, `flow_run` inputs), a template or by typing is accepted only inside `uploads/`. Any agent edit of a node drops its picks, and a copy or template never carries them; pick the file again after such an edit.
   A text that names a local file is inlined into a tool argument (`*DataUrl`, `*_url`, base64) only for a file you picked or a media file under the folders listed below. Hermes credential stores (`auth.json`, `.anthropic_oauth.json`, `mcp-tokens/`, `vault/`, `browser-profile/` …), any `.env*` file and the plugin's own `messaging-secret` are never read, not even when picked.
   Path traversal (`..`) and Windows UNC or device paths (`\\server\share`, `\\?\`, `\Device\`) are rejected before touching the filesystem.
-  Local paths returned inside tool JSON are copied into the run only if they have a media extension inside `<HERMES_HOME>`, `<HERMES_HOME>/plugin-data/flowcanvas/`, or directories listed in `FLOWCANVAS_MEDIA_ROOTS` (`os.pathsep`-separated).
+  Local paths returned inside tool JSON are copied into the run only if they have a media extension inside `<HERMES_HOME>`, `<HERMES_HOME>/plugin-data/arachne-flow/`, or directories listed in `ARACHNE_FLOW_MEDIA_ROOTS` (`os.pathsep`-separated).
   Prose fields (`content`, `markdown`, `html`, `transcript`, `text`) are never scanned for paths, and `$media` / `$large` keys in untrusted tool or LLM output are defanged (`_$media`, `_$large`).
 - **Network and regex protection** — Remote media URLs in tool outputs are validated on every redirect hop (max 5 hops) with Hermes' `is_safe_url` and `create_ssrf_safe_async_client` (blocks private/loopback/link-local IPs, pins the resolved IP, ignores env proxies, 120 s timeout, 200 MB cap).
   User regexes in `If` and `Switch` run in an isolated subprocess killed after 0.5 s.
@@ -139,7 +139,7 @@ In chat or scheduled jobs, Hermes uses `flow_list`, `flow_get`, `flow_node_types
 - **What leaves your machine** — The plugin itself talks to the network only where your flow does: media downloads from tool output (previous point) and the LLM/MCP providers your nodes call.
   `File` nodes and canvas drops are copied into the run and handed to the tools you wire to them; sending such a file to an external tool (an image to a model provider, for example) transmits it as part of that call, sometimes as a `data:` URL.
   **Build with Hermes** sends your prompt, the node catalog, and the current flow to the active model provider. It never executes the flow or spends credits on tools.
-- **Where your data lives** — All plugin data stays on your machine under `<HERMES_HOME>/plugin-data/flowcanvas/` (or `$FLOWCANVAS_DATA_DIR`):
+- **Where your data lives** — All plugin data stays on your machine under `<HERMES_HOME>/plugin-data/arachne-flow/` (or `$ARACHNE_FLOW_DATA_DIR`):
 
 | Folder | Contents & retention |
 |---|---|
@@ -184,7 +184,7 @@ Numbers, booleans, and JSON coerce into `text` ports; `image`, `audio`, `video`,
 
 ## Configuration
 
-Set plugin options in `~/.hermes/config.yaml` under `plugins.config.flowcanvas` (and host LLM override permissions under `plugins.entries.flowcanvas.llm`):
+Set plugin options in `~/.hermes/config.yaml` under `plugins.config.arachne-flow` (and host LLM override permissions under `plugins.entries.arachne-flow.llm`):
 
 | Key | Default | Effect |
 |---|---|---|
@@ -193,8 +193,8 @@ Set plugin options in `~/.hermes/config.yaml` under `plugins.config.flowcanvas` 
 | `max_parallel` | `3` | Maximum nodes or loop items executing at the same time in one run |
 | `max_items` | `100` | Maximum items a `For each` node processes in a single run (a node's own limit can only lower it) |
 | `node_timeout_s` | `120` | Per-node execution timeout in seconds; a node's own `timeout_s` overrides it (3D and video presets default to at least `900 s`) |
-| `plugins.entries.flowcanvas.llm.allow_model_override` | `false` | Host setting: allow `LLM` nodes with a custom `model` field to override the session default model |
-| `plugins.entries.flowcanvas.llm.allow_provider_override` | `false` | Host setting: allow `LLM` nodes with a custom `provider` field to override the session default provider |
+| `plugins.entries.arachne-flow.llm.allow_model_override` | `false` | Host setting: allow `LLM` nodes with a custom `model` field to override the session default model |
+| `plugins.entries.arachne-flow.llm.allow_provider_override` | `false` | Host setting: allow `LLM` nodes with a custom `provider` field to override the session default provider |
 
 ## Costs
 
@@ -208,13 +208,13 @@ Set plugin options in `~/.hermes/config.yaml` under `plugins.config.flowcanvas` 
 
 - **`LLM` node fails when `model` or `provider` is set** —
   Hermes blocks per-node model/provider overrides unless explicitly allowed.
-  Clear the `model` / `provider` field on the node to use your session default, or set `plugins.entries.flowcanvas.llm.allow_model_override: true` (and `allow_provider_override: true`) in `~/.hermes/config.yaml`.
+  Clear the `model` / `provider` field on the node to use your session default, or set `plugins.entries.arachne-flow.llm.allow_model_override: true` (and `allow_provider_override: true`) in `~/.hermes/config.yaml`.
 - **Media presets are missing or marked `skipped`** —
   Presets appear only when their backing tool is loaded.
   Enable `@nanogpt/mcp` in `Settings → MCP` and restart Hermes Desktop for image, video, 3D, and YouTube presets.
 - **A tool wrote a media file on disk, but no preview appears** —
-  Only media files inside `<HERMES_HOME>`, `<HERMES_HOME>/plugin-data/flowcanvas/`, or `FLOWCANVAS_MEDIA_ROOTS` are imported into a run.
-  Add your external output folder to `FLOWCANVAS_MEDIA_ROOTS` (`;` on Windows, `:` on Linux/macOS).
+  Only media files inside `<HERMES_HOME>`, `<HERMES_HOME>/plugin-data/arachne-flow/`, or `ARACHNE_FLOW_MEDIA_ROOTS` are imported into a run.
+  Add your external output folder to `ARACHNE_FLOW_MEDIA_ROOTS` (`;` on Windows, `:` on Linux/macOS).
 - **A run hangs, times out, or shows `Interrupted (server restarted)`** —
   Increase `node_timeout_s` (up to `3600`) for slow models or click **■ Stop** to cancel.
   If Hermes Desktop restarts during a run, unfinished runs are automatically marked `Interrupted (server restarted)` on next load.
@@ -230,10 +230,10 @@ Set plugin options in `~/.hermes/config.yaml` under `plugins.config.flowcanvas` 
 
 **Architecture in five lines:**
 1. `__init__.py` + `runtime.py` — registers the 7 `flow_*` agent tools, the `/flow` command, and process-wide state (`STATE`).
-2. `dashboard/plugin_api.py` + `backend.py` — mounts a single `ANY /x/{path}` REST bridge and reloads `engine/` between runs when `FLOWCANVAS_DEV=1`.
+2. `dashboard/plugin_api.py` + `backend.py` — mounts a single `ANY /x/{path}` REST bridge and reloads `engine/` between runs when `ARACHNE_FLOW_DEV=1`.
 3. `engine/` — DAG topo-sort and runner (`graph.py`, `runner.py`, `executors.py`), node/preset catalog (`nodes.py`, `presets.py`), safe media & storage (`media.py`, `store.py`), REST API (`api.py`), and chat/builder tools (`tools.py`, `generate.py`).
 4. `desktop/plugin.js` — single-file React editor, inspector, palette, templates dialog, and WebGL `.glb` viewer built on `@hermes/plugin-sdk`.
-5. `templates/*.json` + `skills/flowcanvas/SKILL.md` — 12 starter flows and the bundled agent skill.
+5. `templates/*.json` + `skills/arachne-flow/SKILL.md` — 12 starter flows and the bundled agent skill.
 
 ```bash
 bash scripts/check.sh                                    # Gate: Python + JS, syntax and validator; UI probe is separate
@@ -245,7 +245,7 @@ hermes plugins validate "$(pwd -W)"                      # Inspect errors AND ev
 ```
 
 The `dev/` folder contains a local browser harness and screenshot probes for UI verification; it is never loaded by Hermes at plugin runtime.
-For agent-side schema details see [`skills/flowcanvas/SKILL.md`](skills/flowcanvas/SKILL.md). Internal working notes and the private source history are deliberately not part of this repository.
+For agent-side schema details see [`skills/arachne-flow/SKILL.md`](skills/arachne-flow/SKILL.md). Internal working notes and the private source history are deliberately not part of this repository.
 
 ## License
 

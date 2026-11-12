@@ -3,7 +3,7 @@
   bash scripts/hpy dev/dev_server.py [--port 9131]      then open http://127.0.0.1:9131/
 
 Serves dev/harness.html (React from esm.sh, @hermes/plugin-sdk -> dev/sdk-stub.js), desktop/plugin.js,
-the REAL dashboard/plugin_api.py router under /api/plugins/flowcanvas/ with a fake PluginContext,
+the REAL dashboard/plugin_api.py router under /api/plugins/arachne-flow/ with a fake PluginContext,
 plugin events as Server-Sent Events on /events, and /dev/reset?scenario=<name> to seed demo data.
 Data lives in dev/out/data (git-ignored). Standalone local development and browser-harness tooling:
 included in the repository for testing, never loaded by Hermes at plugin runtime.
@@ -29,8 +29,8 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(HERE)
 DATA = os.path.join(HERE, "out", "data")
 FILES = os.path.join(HERE, "out", "fake-files")
-os.environ["FLOWCANVAS_DATA_DIR"] = DATA
-os.environ["FLOWCANVAS_MEDIA_ROOTS"] = FILES   # fake tool outputs count as a tool's own folder (review E-3)
+os.environ["ARACHNE_FLOW_DATA_DIR"] = DATA
+os.environ["ARACHNE_FLOW_MEDIA_ROOTS"] = FILES   # fake tool outputs count as a tool's own folder (review E-3)
 sys.path.insert(0, os.path.join(ROOT, "tests"))
 
 import helpers  # noqa: E402
@@ -200,7 +200,7 @@ class FakeLLM:
 
     def complete(self, messages, **kwargs):
         time.sleep(0.8)
-        if kwargs.get("purpose") == "flowcanvas generate":
+        if kwargs.get("purpose") == "arachne-flow generate":
             return self._generate(messages, kwargs)
         prompt = messages[-1]["content"]
 
@@ -282,7 +282,7 @@ class EventHub:
         self.queues: list = []
 
     def publish(self, event: str, payload: dict) -> None:
-        line = json.dumps({"name": f"plugin.flowcanvas.{event}", "payload": payload}, default=str)
+        line = json.dumps({"name": f"plugin.arachne-flow.{event}", "payload": payload}, default=str)
         with self.lock:
             for q in list(self.queues):
                 q.put(line)
@@ -540,7 +540,7 @@ _RUNTIME = {}
 def setup_runtime():
     """Idempotent: one shared runtime with the fake ctx, fake tools and the SSE event mirror."""
     if "rt" not in _RUNTIME:
-        rt = helpers.load_module("runtime.py", "flowcanvas_runtime")
+        rt = helpers.load_module("runtime.py", "arachne_flow_runtime")
         rt.bind(DevCtx())
         state = rt.STATE.setdefault("engine_state", {})
         state["tool_source"] = lambda: DEV_TOOLS
@@ -551,9 +551,9 @@ def setup_runtime():
 
 def build_app() -> FastAPI:
     setup_runtime()
-    api_mod = helpers.load_module(os.path.join("dashboard", "plugin_api.py"), "flowcanvas_dev_api")
+    api_mod = helpers.load_module(os.path.join("dashboard", "plugin_api.py"), "arachne_flow_dev_api")
     app = FastAPI()
-    app.include_router(api_mod.router, prefix="/api/plugins/flowcanvas")
+    app.include_router(api_mod.router, prefix="/api/plugins/arachne-flow")
 
     def no_cache(path: str, media_type: str) -> Response:
         with open(path, "rb") as fh:

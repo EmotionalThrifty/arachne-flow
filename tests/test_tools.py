@@ -168,7 +168,7 @@ class SkillExamplesTest(unittest.TestCase):
         helpers.temp_data_dir()
         engine = helpers.load_engine()
         env = engine.env.Env(ctx=helpers.FakeCtx({}), state={"tool_source": lambda: SKILL_TOOLS}, emit=lambda *a: None)
-        with open(os.path.join(helpers.ROOT, "skills", "flowcanvas", "SKILL.md"), encoding="utf-8") as fh:
+        with open(os.path.join(helpers.ROOT, "skills", "arachne-flow", "SKILL.md"), encoding="utf-8") as fh:
             text = fh.read()
         blocks = [b.split("```", 1)[0] for b in text.split("```json")[1:]]
         self.assertEqual(len(blocks), 2)
@@ -203,7 +203,7 @@ class RegistrationTest(unittest.TestCase):
         with open(os.path.join(helpers.ROOT, "plugin.yaml"), encoding="utf-8") as fh:
             declared = set(yaml.safe_load(fh).get("provides_tools") or [])
         self.assertEqual(declared, EXPECTED)          # E1: the spike tool flow_ping is gone
-        name = "flowcanvas_registration_test"
+        name = "arachne_flow_registration_test"
         spec = importlib.util.spec_from_file_location(
             name, os.path.join(helpers.ROOT, "__init__.py"), submodule_search_locations=[helpers.ROOT])
         module = importlib.util.module_from_spec(spec)
@@ -216,14 +216,14 @@ class RegistrationTest(unittest.TestCase):
         finally:
             module.runtime.bind(previous)
         self.assertEqual(set(ctx.tools_seen), declared)
-        self.assertEqual(set(ctx.commands_seen), {"flow"})   # E1: no /flowcanvas spike command
-        skill = ctx.skills_seen["flowcanvas"]
+        self.assertEqual(set(ctx.commands_seen), {"flow"})   # E1: no /arachne-flow spike command
+        skill = ctx.skills_seen["arachne-flow"]
         self.assertTrue(os.path.isfile(skill["path"]), skill["path"])
         self.assertTrue(skill["description"].startswith("Use when"))
         with open(skill["path"], encoding="utf-8") as fh:
             text = fh.read()
         front = yaml.safe_load(text.split("---")[1])
-        self.assertEqual(front["name"], "flowcanvas")
+        self.assertEqual(front["name"], "arachne-flow")
         for tool in EXPECTED:
             self.assertIn(tool, text, f"skill does not mention {tool}")
 

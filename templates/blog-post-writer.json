@@ -1,5 +1,5 @@
 {
-  "schema": "flowcanvas/1",
+  "schema": "arachne-flow/1",
   "name": "Blog post writer",
   "description": "Research a topic on the web, outline it, then write the article.",
   "nodes": [

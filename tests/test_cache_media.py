@@ -43,9 +43,9 @@ class MediaCtx(helpers.FakeCtx):
 
 
 def make_env():
-    """A throwaway data dir inside the test scratch; FLOWCANVAS_CACHE also stays outside the repo."""
+    """A throwaway data dir inside the test scratch; ARACHNE_FLOW_CACHE also stays outside the repo."""
     data = helpers.temp_data_dir()
-    os.environ["FLOWCANVAS_DATA_DIR"] = data
+    os.environ["ARACHNE_FLOW_DATA_DIR"] = data
     ctx = MediaCtx()
     env = E.env.Env(ctx=ctx, state={"tool_source": lambda: TOOLS}, data_dir=data,
                     emit=lambda event, payload: None)

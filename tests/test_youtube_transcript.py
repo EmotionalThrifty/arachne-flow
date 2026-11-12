@@ -97,19 +97,19 @@ def structured(entries, summary=None):
 
 class YouTubeTranscriptPresetTest(unittest.TestCase):
     def setUp(self):
-        self.tmp = tempfile.TemporaryDirectory(prefix="flowcanvas-youtube-transcript-")
+        self.tmp = tempfile.TemporaryDirectory(prefix="arachne-flow-youtube-transcript-")
         self.addCleanup(self.tmp.cleanup)
-        self._old_data_dir = os.environ.get("FLOWCANVAS_DATA_DIR")
-        os.environ["FLOWCANVAS_DATA_DIR"] = self.tmp.name
+        self._old_data_dir = os.environ.get("ARACHNE_FLOW_DATA_DIR")
+        os.environ["ARACHNE_FLOW_DATA_DIR"] = self.tmp.name
         self.addCleanup(self._restore_data_dir)
         self.out = os.path.join(self.tmp.name, "outputs")
         os.makedirs(self.out)
 
     def _restore_data_dir(self):
         if self._old_data_dir is None:
-            os.environ.pop("FLOWCANVAS_DATA_DIR", None)
+            os.environ.pop("ARACHNE_FLOW_DATA_DIR", None)
         else:
-            os.environ["FLOWCANVAS_DATA_DIR"] = self._old_data_dir
+            os.environ["ARACHNE_FLOW_DATA_DIR"] = self._old_data_dir
 
     def spec(self):
         engine = helpers.load_engine()

@@ -34,7 +34,7 @@ def isolated_media_roots(case, data):
     home_patch = patch.object(E.media, "_hermes_home", return_value=home)
     home_patch.start()
     case.addCleanup(home_patch.stop)
-    extra_patch = patch.dict(os.environ, {"FLOWCANVAS_MEDIA_ROOTS": ""})
+    extra_patch = patch.dict(os.environ, {"ARACHNE_FLOW_MEDIA_ROOTS": ""})
     extra_patch.start()
     case.addCleanup(extra_patch.stop)
 
@@ -206,8 +206,8 @@ class LocalRefTest(unittest.TestCase):
         extra = tempfile.mkdtemp(prefix="fc-extra-")
         ok = self.write(extra, "voice.png")
         self.assertEqual(len(E.media.extract_media({"file_path": ok}, self.out, "n_t", allow_download=False)), 0)
-        os.environ["FLOWCANVAS_MEDIA_ROOTS"] = extra
-        self.addCleanup(os.environ.pop, "FLOWCANVAS_MEDIA_ROOTS", None)
+        os.environ["ARACHNE_FLOW_MEDIA_ROOTS"] = extra
+        self.addCleanup(os.environ.pop, "ARACHNE_FLOW_MEDIA_ROOTS", None)
         self.assertEqual(len(E.media.extract_media({"file_path": ok}, self.out, "n_t", allow_download=False)), 1)
 
     def test_a_refused_file_is_reported_in_the_node_log(self):

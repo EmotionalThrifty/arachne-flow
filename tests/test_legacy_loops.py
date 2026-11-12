@@ -102,10 +102,10 @@ class LoopSpillCase(unittest.TestCase):
     config = {}
 
     def setUp(self):
-        self.root = tempfile.mkdtemp(prefix="flowcanvas-legacy-loops-")
+        self.root = tempfile.mkdtemp(prefix="arachne-flow-legacy-loops-")
         self.addCleanup(shutil.rmtree, self.root, True)
-        self.previous_data_dir = os.environ.get("FLOWCANVAS_DATA_DIR")
-        os.environ["FLOWCANVAS_DATA_DIR"] = self.root
+        self.previous_data_dir = os.environ.get("ARACHNE_FLOW_DATA_DIR")
+        os.environ["ARACHNE_FLOW_DATA_DIR"] = self.root
         self.addCleanup(self._restore_data_dir)
         self.ctx = Ctx(self.config)
         self.events = []
@@ -116,9 +116,9 @@ class LoopSpillCase(unittest.TestCase):
 
     def _restore_data_dir(self):
         if self.previous_data_dir is None:
-            os.environ.pop("FLOWCANVAS_DATA_DIR", None)
+            os.environ.pop("ARACHNE_FLOW_DATA_DIR", None)
         else:
-            os.environ["FLOWCANVAS_DATA_DIR"] = self.previous_data_dir
+            os.environ["ARACHNE_FLOW_DATA_DIR"] = self.previous_data_dir
 
     # -- recording
 

@@ -1,4 +1,4 @@
-// Arachne Flow — the Hermes Desktop page of the flowcanvas plugin.
+// Arachne Flow — the Hermes Desktop page of the arachne-flow plugin.
 //
 // One file on purpose: Desktop evaluates it from a blob: URL, so it cannot import siblings. Imports are
 // limited to the plugin SDK and React. Pure logic (geometry, graph edits, undo, parsing) lives in plain
@@ -8,8 +8,8 @@ import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useReducer, use
 import { jsx, jsxs } from 'react/jsx-runtime'
 
 const host = sdk.host || {}
-const PLUGIN_ID = 'flowcanvas'
-const ROUTE = '/flowcanvas'
+const PLUGIN_ID = 'arachne-flow'
+const ROUTE = '/arachne-flow'
 const evt = (name) => `plugin.${PLUGIN_ID}.${name}`
 
 const NODE_W = 240
@@ -26,7 +26,7 @@ const SAVE_DELAY = 600
 const POLL_MS = 2000
 // Consecutive failed fallback polls after which the page admits it lost the backend (U-5).
 const LOST_CONTACT_AFTER = 3
-const DND_TYPE = 'application/x-flowcanvas-node'
+const DND_TYPE = 'application/x-arachne-flow-node'
 const TERMINAL = new Set(['done', 'error', 'cancelled', 'invalid', 'interrupted'])
 const EMPTY_SET = new Set()
 const EMPTY_DOC = { flow: null, undo: [], redo: [], key: null, at: 0 }
@@ -1653,10 +1653,10 @@ const POPOUT_TTL_MS = 20000
 // `position: fixed`; app UI is never touched). sessionStorage on purpose (U-13): it is per window — so a second
 // window can still be a normal one — and it survives a reload of that window, which is exactly what a full-window
 // page needs; localStorage is shared by every window of the app and would flip them all.
-const FOCUS_WINDOW_KEY = 'hermes.plugin.flowcanvas.focusWindow'
+const FOCUS_WINDOW_KEY = 'hermes.plugin.arachne-flow.focusWindow'
 // The same reasoning gives each window an id (U-14): a hot reload re-runs register() in the window that opened
 // the peer, so the hand-off below names its opener and only a *different* window takes it.
-const WINDOW_ID_KEY = 'hermes.plugin.flowcanvas.windowId'
+const WINDOW_ID_KEY = 'hermes.plugin.arachne-flow.windowId'
 /** This window's id, created once and remembered in sessionStorage; `explicit` overrides it (tests). Null when
  *  there is no sessionStorage, which means "cannot tell" for the hand-off decision. */
 function windowIdGet(explicit) {
@@ -6955,7 +6955,7 @@ function Welcome({ templates, hasFlows, onNew, onFromTemplate, onOpenMenu, gener
 }
 
 // ---------------------------------------------------------------- page
-function FlowCanvasPage({ ctx }) {
+function ArachneFlowPage({ ctx }) {
   const api = useMemo(() => makeApi(ctx), [ctx])
   const storage = ctx ? ctx.storage : null
   const sget = (k, d) => {
@@ -8374,19 +8374,19 @@ export default {
     const navigate = () => {
       if (typeof host.navigate === 'function') host.navigate(ROUTE)
     }
-    ctx.register({ id: 'page', area: sdk.ROUTES_AREA, data: { path: ROUTE }, render: () => h(FlowCanvasPage, { ctx }) })
+    ctx.register({ id: 'page', area: sdk.ROUTES_AREA, data: { path: ROUTE }, render: () => h(ArachneFlowPage, { ctx }) })
     ctx.register({ id: 'nav', area: sdk.SIDEBAR_NAV_AREA, data: { path: ROUTE, label: 'Arachne Flow', codicon: 'type-hierarchy' } })
     if (sdk.PALETTE_AREA) {
       ctx.register({
         id: 'palette-open',
         area: sdk.PALETTE_AREA,
-        data: { id: 'flowcanvas.open', label: 'Arachne Flow: Open', keywords: ['flow', 'canvas', 'nodes', 'pipeline', 'workflow'], run: navigate }
+        data: { id: 'arachne-flow.open', label: 'Arachne Flow: Open', keywords: ['flow', 'canvas', 'nodes', 'pipeline', 'workflow'], run: navigate }
       })
       ctx.register({
         id: 'palette-run',
         area: sdk.PALETTE_AREA,
         data: {
-          id: 'flowcanvas.run',
+          id: 'arachne-flow.run',
           label: 'Arachne Flow: Run current flow',
           keywords: ['flow', 'run', 'execute', 'pipeline'],
           run: () => {

@@ -64,7 +64,7 @@ def marker_without_chars(marker):
 
 class ScratchCase(unittest.TestCase):
     def setUp(self):
-        self.root = tempfile.mkdtemp(prefix="flowcanvas-legacy-spill-")
+        self.root = tempfile.mkdtemp(prefix="arachne-flow-legacy-spill-")
         self.addCleanup(shutil.rmtree, self.root, True)
         self.env = E.env.Env(state={}, data_dir=self.root)
 
@@ -270,8 +270,8 @@ class LegacySpillRunnerTest(ScratchCase):
 
     def setUp(self):
         super().setUp()
-        self.previous_data_dir = os.environ.get("FLOWCANVAS_DATA_DIR")
-        os.environ["FLOWCANVAS_DATA_DIR"] = self.root
+        self.previous_data_dir = os.environ.get("ARACHNE_FLOW_DATA_DIR")
+        os.environ["ARACHNE_FLOW_DATA_DIR"] = self.root
         self.addCleanup(self._restore_data_dir)
         self.rec_events = []
         self.env = E.env.Env(ctx=Ctx(), state={"tool_source": lambda: TOOLS},
@@ -280,9 +280,9 @@ class LegacySpillRunnerTest(ScratchCase):
 
     def _restore_data_dir(self):
         if self.previous_data_dir is None:
-            os.environ.pop("FLOWCANVAS_DATA_DIR", None)
+            os.environ.pop("ARACHNE_FLOW_DATA_DIR", None)
         else:
-            os.environ["FLOWCANVAS_DATA_DIR"] = self.previous_data_dir
+            os.environ["ARACHNE_FLOW_DATA_DIR"] = self.previous_data_dir
 
     def build(self, ops):
         types = N.types_by_name(self.env)

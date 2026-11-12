@@ -1,11 +1,11 @@
 ---
-name: flowcanvas
+name: arachne-flow
 description: Use when building, editing, debugging, or running Arachne Flow node flows or chaining tools/LLM steps.
 ---
 
 # Arachne Flow
 
-Arachne Flow (plugin id `flowcanvas`) is a node editor inside Hermes Desktop. A **flow** is a saved graph: nodes (inputs, LLM calls,
+Arachne Flow (plugin id `arachne-flow`) is a node editor inside Hermes Desktop. A **flow** is a saved graph: nodes (inputs, LLM calls,
 Hermes tools, MCP tools, curated presets) wired output → input. The user sees every flow you build on the
 canvas, with live status per node, and can edit and re-run it without you.
 

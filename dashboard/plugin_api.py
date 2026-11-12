@@ -1,7 +1,7 @@
-"""flowcanvas backend router, mounted at /api/plugins/flowcanvas/.
+"""arachne-flow backend router, mounted at /api/plugins/arachne-flow/.
 
 Thin and stable: every route delegates to ../backend.py through runtime.load_backend() — the one loader the
-agent half uses too (review E-14). Hot reload of backend/engine happens there, only with FLOWCANVAS_DEV=1.
+agent half uses too (review E-14). Hot reload of backend/engine happens there, only with ARACHNE_FLOW_DEV=1.
 """
 from __future__ import annotations
 
@@ -30,7 +30,7 @@ def _runtime():
                     return module.find_or_load()
             except OSError:
                 continue
-    spec = importlib.util.spec_from_file_location("flowcanvas_runtime_boot", RUNTIME)
+    spec = importlib.util.spec_from_file_location("arachne_flow_runtime_boot", RUNTIME)
     boot = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(boot)
     return boot.find_or_load()

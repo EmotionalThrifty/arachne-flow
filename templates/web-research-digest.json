@@ -1,5 +1,5 @@
 {
-  "schema": "flowcanvas/1",
+  "schema": "arachne-flow/1",
   "name": "Web research digest",
   "description": "Search the web for a topic and summarise the findings with sources.",
   "nodes": [

@@ -79,7 +79,7 @@ class InputHistoryTest(unittest.TestCase):
         self.assertEqual(result['nodes'][refs['target']]['inputs']['data']['count'],0)
     def test_history_byte_limit_omits_snapshot_without_failing_execution(self):
         from unittest.mock import patch
-        from flowcanvas_engine import input_history as H
+        from arachne_flow_engine import input_history as H
         flow,refs=self.build(True,value={'text':'x'*500})
         with patch.object(H,'MAX_BYTES',64):
             result=self.run_flow(flow)

@@ -23,13 +23,13 @@ class ReviewEdges(unittest.TestCase):
         self.assertNotIn('$large',result['value']['payload'])
         self.assertNotIn('$media',result['value']['payload']['nested'][0])
     def test_history_rejects_nonfinite_numbers_without_failing_run(self):
-        from flowcanvas_engine import input_history as H
+        from arachne_flow_engine import input_history as H
         with self.assertRaises(ValueError):
             H.snapshot({'x':float('nan')})
         with self.assertRaises(ValueError):
             H.snapshot({'x':float('inf')})
     def test_history_handles_tuple_input_and_redacts_nested_sensitive_values(self):
-        from flowcanvas_engine import input_history as H
+        from arachne_flow_engine import input_history as H
         result,size=H.snapshot({'items':(1,2,False,None,{'api_key':'x'})})
         self.assertEqual(result['items'],[1,2,False,None,{'api_key':'[redacted]'}])
         self.assertGreater(size,0)
@@ -39,9 +39,9 @@ class ReviewEdges(unittest.TestCase):
             def set_node(self,nid,**fields):self.run['nodes'].setdefault(nid,{}).update(fields);self.saved.append(fields)
             def snapshot(self):return self.run
         # Build only the method's dependencies, without a real run.
-        from flowcanvas_engine.runner import _Execution
+        from arachne_flow_engine.runner import _Execution
         h=H();h._input_history_sizes={};h._input_history_incomplete=set();h.nodes={'n':{'record_inputs':True}}
-        import flowcanvas_engine.runner as R
+        import arachne_flow_engine.runner as R
         ex=object.__new__(_Execution);ex.handle=h;ex.run=h.run;ex.nodes=h.nodes;ex.env=self.env;ex._input_history_sizes={};ex._input_history_incomplete=set();ex._last_save=float('inf')
         ex.record_inputs('n',{'value':1}, {'inputs':[]}, index=1)
         self.assertIn('existing',ex.run['nodes']['n']['inputs'])

@@ -72,7 +72,7 @@ class GenerateTest(unittest.TestCase):
         self.assertEqual(result["summary"], {"nodes": 2, "connections": 1})
         self.assertEqual(self.api("GET", f"flows/{flow['id']}")["flow"], flow)
         call = self.ctx.llm.calls[0]
-        self.assertEqual(call["purpose"], "flowcanvas generate")
+        self.assertEqual(call["purpose"], "arachne-flow generate")
         self.assertNotIn("model", call)
         self.assertNotIn("provider", call)
         system = call["messages"][0]["content"]
@@ -178,8 +178,8 @@ class GenerateTest(unittest.TestCase):
         self.ctx.llm = FakeLLM(PermissionError("override denied"))
         code, detail = self.status_of({"prompt": "Build", "model": "z/model", "provider": "z"})
         self.assertEqual(code, 403)
-        self.assertIn("plugins.entries.flowcanvas.llm.allow_model_override", detail)
-        self.assertIn("plugins.entries.flowcanvas.llm.allow_provider_override", detail)
+        self.assertIn("plugins.entries.arachne-flow.llm.allow_model_override", detail)
+        self.assertIn("plugins.entries.arachne-flow.llm.allow_provider_override", detail)
 
     def test_blank_prompt_is_400_without_an_llm_call(self):
         code, detail = self.status_of({"prompt": "  "})
@@ -192,7 +192,7 @@ class GenerateTest(unittest.TestCase):
         self.api("POST", "generate", {"prompt": "Make a text preview"})
         self.assertEqual(len(self.ctx.llm.calls), 1)
         call = self.ctx.llm.calls[0]
-        self.assertEqual(call.get("task"), "flowcanvas_generate")
+        self.assertEqual(call.get("task"), "arachne_flow_generate")
         self.assertNotIn("reasoning_effort", call)
         self.assertEqual(call.get("timeout"), self.engine.generate.LLM_TIMEOUT_S)
         self.assertEqual(call.get("max_tokens"), self.engine.generate.MAX_REPLY_TOKENS)
@@ -217,14 +217,14 @@ class GenerateTest(unittest.TestCase):
             def complete(self, messages, *, purpose=None, task=None, model=None, provider=None):
                 task_calls.append({"purpose": purpose, "task": task})
                 if task is not None:
-                    raise PermissionError("Plugin 'flowcanvas' cannot route through auxiliary task 'flowcanvas_generate'")
+                    raise PermissionError("Plugin 'arachne-flow' cannot route through auxiliary task 'arachne_flow_generate'")
                 return type("Result", (), {"text": answer()})()
 
         self.ctx.llm = TaskRejectingLLM()
         res2 = self.api("POST", "generate", {"prompt": "Make a text preview"})
         self.assertTrue(res2["created"])
         self.assertEqual(len(task_calls), 2)
-        self.assertEqual(task_calls[0]["task"], "flowcanvas_generate")
+        self.assertEqual(task_calls[0]["task"], "arachne_flow_generate")
         self.assertIsNone(task_calls[1]["task"])
 
     def test_full_catalog_is_sent_compactly_and_call_count_is_bounded(self):

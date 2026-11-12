@@ -9,7 +9,7 @@ import sys
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(ROOT, "tests"))
-os.environ.setdefault("FLOWCANVAS_DATA_DIR", os.path.join(ROOT, "dev", "out", "data"))
+os.environ.setdefault("ARACHNE_FLOW_DATA_DIR", os.path.join(ROOT, "dev", "out", "data"))
 
 import helpers  # noqa: E402
 from tools.registry import discover_builtin_tools  # noqa: E402  (dev script, not plugin code)

@@ -1,7 +1,7 @@
-"""flowcanvas backend glue, loaded through runtime.load_backend().
+"""arachne-flow backend glue, loaded through runtime.load_backend().
 
-The REST surface lives under /api/plugins/flowcanvas/x/<path>; every such request is handed to the
-engine package (engine/). Both load once; with FLOWCANVAS_DEV=1 (development) they are re-imported after an
+The REST surface lives under /api/plugins/arachne-flow/x/<path>; every such request is handed to the
+engine package (engine/). Both load once; with ARACHNE_FLOW_DEV=1 (development) they are re-imported after an
 edit while no flow runs, so the running Hermes Desktop picks up backend and engine changes without a restart.
 """
 from __future__ import annotations
@@ -12,11 +12,11 @@ import os
 import sys
 import threading
 
-logger = logging.getLogger("flowcanvas.api")
-PLUGIN_ID = "flowcanvas"
+logger = logging.getLogger("arachne-flow.api")
+PLUGIN_ID = "arachne-flow"
 ROOT = os.path.dirname(os.path.realpath(__file__))
 ENGINE_DIR = os.path.join(ROOT, "engine")
-ENGINE_NAME = "flowcanvas_engine"
+ENGINE_NAME = "arachne_flow_engine"
 _ENGINE_LOCK = threading.RLock()
 
 
@@ -30,7 +30,7 @@ def _runtime():
                     return module.find_or_load()
             except OSError:
                 continue
-    spec = importlib.util.spec_from_file_location("flowcanvas_runtime_boot", path)
+    spec = importlib.util.spec_from_file_location("arachne_flow_runtime_boot", path)
     boot = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(boot)
     return boot.find_or_load()
@@ -42,12 +42,12 @@ def _emit(event: str, payload: dict) -> None:
         try:
             hook(event, payload)
         except Exception as exc:  # noqa: BLE001 - a broken mirror must not break the run
-            logger.debug("flowcanvas: emit hook failed: %s", exc)
+            logger.debug("arachne-flow: emit hook failed: %s", exc)
     try:
         from hermes_cli.plugin_events import broadcast_plugin_event
         broadcast_plugin_event(PLUGIN_ID, event, payload)
     except Exception as exc:  # noqa: BLE001 - delivery is best effort
-        logger.debug("flowcanvas: event %s not delivered: %s", event, exc)
+        logger.debug("arachne-flow: event %s not delivered: %s", event, exc)
 
 
 # ----------------------------------------------------------------- engine hot reload
@@ -73,7 +73,7 @@ def _keep_loaded(rt) -> bool:
 
 
 def engine():
-    """The engine package, loaded once (shared across reloads of this file). With FLOWCANVAS_DEV=1 it is
+    """The engine package, loaded once (shared across reloads of this file). With ARACHNE_FLOW_DEV=1 it is
     re-imported when any engine/*.py changes, but not while a run is active (review E-9)."""
     rt = _runtime()
     with _ENGINE_LOCK:

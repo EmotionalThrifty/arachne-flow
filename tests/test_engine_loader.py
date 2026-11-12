@@ -23,13 +23,13 @@ class EngineLoaderTest(unittest.TestCase):
         self.assertEqual(cm.exception.status_code, 404)
 
     def dev(self, value):
-        previous = os.environ.get("FLOWCANVAS_DEV")
+        previous = os.environ.get("ARACHNE_FLOW_DEV")
         if value is None:
-            os.environ.pop("FLOWCANVAS_DEV", None)
+            os.environ.pop("ARACHNE_FLOW_DEV", None)
         else:
-            os.environ["FLOWCANVAS_DEV"] = value
-        self.addCleanup(lambda: os.environ.__setitem__("FLOWCANVAS_DEV", previous) if previous is not None
-                        else os.environ.pop("FLOWCANVAS_DEV", None))
+            os.environ["ARACHNE_FLOW_DEV"] = value
+        self.addCleanup(lambda: os.environ.__setitem__("ARACHNE_FLOW_DEV", previous) if previous is not None
+                        else os.environ.pop("ARACHNE_FLOW_DEV", None))
 
     def touched(self, *rel):
         path = os.path.join(helpers.ROOT, *rel)
@@ -78,7 +78,7 @@ class BackendLoaderTest(unittest.TestCase):
         self.assertIs(self.rt.load_backend(), first)
 
     def test_backend_reloads_in_dev_mode(self):
-        os.environ["FLOWCANVAS_DEV"] = "1"
+        os.environ["ARACHNE_FLOW_DEV"] = "1"
         first = self.rt.load_backend()
         EngineLoaderTest.touched(self, "backend.py")
         self.assertIsNot(self.rt.load_backend(), first)

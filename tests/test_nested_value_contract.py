@@ -10,10 +10,10 @@ from fastapi import HTTPException
 
 class TestNestedLargeExpansion(unittest.TestCase):
     def setUp(self):
-        self.orig_data_dir = os.environ.get('FLOWCANVAS_DATA_DIR')
+        self.orig_data_dir = os.environ.get('ARACHNE_FLOW_DATA_DIR')
         self.temp_dir = helpers.temp_data_dir()
         if not self.temp_dir or not isinstance(self.temp_dir, str):
-            self.temp_dir = os.environ.get('FLOWCANVAS_DATA_DIR')
+            self.temp_dir = os.environ.get('ARACHNE_FLOW_DATA_DIR')
         self.E = helpers.load_engine()
         self.A, self.R, self.S = self.E.api, self.E.runner, self.E.store
         self.env = self.E.env.Env(ctx=helpers.FakeCtx(), state={}, emit=lambda event, payload: None)
@@ -25,9 +25,9 @@ class TestNestedLargeExpansion(unittest.TestCase):
         if self.temp_dir and os.path.exists(self.temp_dir):
             shutil.rmtree(self.temp_dir, ignore_errors=True)
         if self.orig_data_dir is not None:
-            os.environ['FLOWCANVAS_DATA_DIR'] = self.orig_data_dir
+            os.environ['ARACHNE_FLOW_DATA_DIR'] = self.orig_data_dir
         else:
-            os.environ.pop('FLOWCANVAS_DATA_DIR', None)
+            os.environ.pop('ARACHNE_FLOW_DATA_DIR', None)
 
     def _page_and_reconstruct(self, run_id, node_id, port, limit=65536):
         offset = 0
@@ -738,7 +738,7 @@ class TestNestedLargeExpansion(unittest.TestCase):
 
         marker = self.R.record_value(self.env, 'A' * 70000, self.RUN, self.NODE, 'race')
         source = marker['$large']['path']
-        secret_dir = tempfile.mkdtemp(prefix='flowcanvas-secret-')
+        secret_dir = tempfile.mkdtemp(prefix='arachne-flow-secret-')
         self.addCleanup(shutil.rmtree, secret_dir, ignore_errors=True)
         secret = os.path.join(secret_dir, 'secret.txt')
         with open(secret, 'w', encoding='utf-8') as fh:

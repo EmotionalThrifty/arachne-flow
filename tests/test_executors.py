@@ -43,7 +43,7 @@ class MediaTest(unittest.TestCase):
     def setUp(self):
         self.out = tempfile.mkdtemp(prefix="fc-media-")
         self.src = tempfile.mkdtemp(prefix="fc-src-")
-        os.environ["FLOWCANVAS_DATA_DIR"] = self.src  # fake tool files live where real ones do: in Arachne Flow's (or Hermes') folders (review E-3)
+        os.environ["ARACHNE_FLOW_DATA_DIR"] = self.src  # fake tool files live where real ones do: in Arachne Flow's (or Hermes') folders (review E-3)
 
     def write(self, name, data=b"x"):
         path = os.path.join(self.src, name)

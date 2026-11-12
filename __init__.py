@@ -1,4 +1,4 @@
-"""flowcanvas — node-based flow editor for Hermes Desktop."""
+"""arachne-flow — node-based flow editor for Hermes Desktop."""
 from __future__ import annotations
 
 import json
@@ -22,7 +22,7 @@ def _agent_tool(name):
         try:
             return _backend().tool_call(name, args, kwargs)
         except Exception as exc:  # noqa: BLE001 - agent handlers return errors as data
-            logger.exception("flowcanvas: %s failed", name)
+            logger.exception("arachne-flow: %s failed", name)
             return json.dumps({"error": f"{type(exc).__name__}: {exc}", "code": "internal"})
     return handle
 
@@ -31,32 +31,32 @@ def _agent_command(raw_args: str, **kwargs) -> str:
     try:
         return _backend().command(raw_args, kwargs)
     except Exception as exc:  # noqa: BLE001
-        logger.exception("flowcanvas: /flow failed")
+        logger.exception("arachne-flow: /flow failed")
         return f"Error: {type(exc).__name__}: {exc}"
 
 
-SKILL_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "skills", "flowcanvas", "SKILL.md")
+SKILL_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "skills", "arachne-flow", "SKILL.md")
 SKILL_DESCRIPTION = "Use when building, editing, debugging or running Arachne Flow node flows and tool/LLM pipelines."
 
 
 def _register_skill(ctx) -> None:
-    """Bundled agent skill, resolvable as ``flowcanvas:flowcanvas`` (hermes_cli/plugins_content.register_skill)."""
+    """Bundled agent skill, resolvable as ``arachne-flow:arachne-flow`` (hermes_cli/plugins_content.register_skill)."""
     register_skill = getattr(ctx, "register_skill", None)
     if not callable(register_skill):
-        logger.info("flowcanvas: this Hermes cannot register plugin skills")
+        logger.info("arachne-flow: this Hermes cannot register plugin skills")
         return
     try:
-        register_skill("flowcanvas", SKILL_PATH, description=SKILL_DESCRIPTION)
+        register_skill("arachne-flow", SKILL_PATH, description=SKILL_DESCRIPTION)
     except (ValueError, FileNotFoundError) as exc:
-        logger.warning("flowcanvas: skill not registered: %s", exc)
+        logger.warning("arachne-flow: skill not registered: %s", exc)
 
 
 def register(ctx) -> None:
     runtime.bind(ctx)
     for schema in _backend().engine().tool_schemas.SCHEMAS:
-        ctx.register_tool(name=schema["name"], toolset="flowcanvas", schema=schema,
+        ctx.register_tool(name=schema["name"], toolset="arachne_flow", schema=schema,
                           handler=_agent_tool(schema["name"]))
     ctx.register_command("flow", _agent_command, description="List, run, open and inspect flows in Arachne Flow",
                          args_hint="list | run <name> [--fresh] | open [name] | status <run_id>")
     _register_skill(ctx)
-    logger.info("flowcanvas: registered (ctx bound)")
+    logger.info("arachne-flow: registered (ctx bound)")

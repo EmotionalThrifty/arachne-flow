@@ -1,5 +1,5 @@
 {
-  "schema": "flowcanvas/1",
+  "schema": "arachne-flow/1",
   "name": "Text → speech",
   "description": "Polish a text for reading aloud and turn it into audio.",
   "nodes": [

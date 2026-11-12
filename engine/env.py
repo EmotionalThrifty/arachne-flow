@@ -13,6 +13,6 @@ def _no_emit(event: str, payload: dict) -> None:
 class Env:
     ctx: Any = None                                      # Hermes PluginContext (dispatch_tool, llm, ...)
     state: dict = field(default_factory=dict)            # survives engine hot reloads (active runs, caches)
-    emit: Callable[[str, dict], None] = _no_emit          # broadcast plugin.flowcanvas.<event> to Desktop
-    data_dir: Optional[str] = None                       # None -> plugin_data_dir("flowcanvas") or $FLOWCANVAS_DATA_DIR
+    emit: Callable[[str, dict], None] = _no_emit          # broadcast plugin.arachne-flow.<event> to Desktop
+    data_dir: Optional[str] = None                       # None -> plugin_data_dir("arachne-flow") or $ARACHNE_FLOW_DATA_DIR
     templates_dir: Optional[str] = None                  # None -> <plugin>/templates

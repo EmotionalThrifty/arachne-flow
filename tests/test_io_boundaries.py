@@ -30,7 +30,7 @@ import helpers
 # Keep every scratch file, temp dir and log of this suite under the Hermes cache scratch (never the repo,
 # never the real plugin data). tempfile reads TEMP on Windows, so set it before the first mkdtemp().
 SCRATCH = os.path.join(os.environ.get("LOCALAPPDATA") or os.path.expanduser("~/AppData/Local"),
-                       "hermes", "cache", "scratch", "flowcanvas-io-boundaries")
+                       "hermes", "cache", "scratch", "arachne-flow-io-boundaries")
 
 E = helpers.load_engine()
 M, R, A, S, O, P = E.media, E.runner, E.api, E.store, E.options, E.presets
@@ -54,7 +54,7 @@ HOSTILE_PATHS = (
     "\\\\attacker.invalid/share/evil.png",            # UNC, mixed separators
     "\\\\.\\PhysicalDrive0\\evil.png",                # device namespace
     "\\\\?\\C:\\Users\\Public\\evil.png",             # verbatim / extended-length device path
-    "\\\\.\\pipe\\flowcanvas-evil.png",               # named pipe
+    "\\\\.\\pipe\\arachne-flow-evil.png",               # named pipe
 )
 
 
@@ -149,15 +149,15 @@ class IoBoundariesTest(unittest.TestCase):
         temp_dir = patch.object(tempfile, "tempdir", SCRATCH)
         temp_dir.start()
         self.addCleanup(temp_dir.stop)
-        self.data = helpers.temp_data_dir()               # fresh FLOWCANVAS_DATA_DIR per test
-        previous_cache = os.environ.get("FLOWCANVAS_CACHE")
-        os.environ["FLOWCANVAS_CACHE"] = os.path.join(self.data, "cache")
+        self.data = helpers.temp_data_dir()               # fresh ARACHNE_FLOW_DATA_DIR per test
+        previous_cache = os.environ.get("ARACHNE_FLOW_CACHE")
+        os.environ["ARACHNE_FLOW_CACHE"] = os.path.join(self.data, "cache")
 
         def restore_cache():
             if previous_cache is None:
-                os.environ.pop("FLOWCANVAS_CACHE", None)
+                os.environ.pop("ARACHNE_FLOW_CACHE", None)
             else:
-                os.environ["FLOWCANVAS_CACHE"] = previous_cache
+                os.environ["ARACHNE_FLOW_CACHE"] = previous_cache
 
         self.addCleanup(restore_cache)
         self.scratch = tempfile.mkdtemp(prefix="io-boundaries-")
@@ -482,7 +482,7 @@ class IoBoundariesTest(unittest.TestCase):
                 self.assertEqual(backend, [])
 
     def test_multipart_body_stops_at_the_limit_before_parsing(self):
-        boundary = "----flowcanvasSE5"
+        boundary = "----arachne-flowSE5"
         head = (f"--{boundary}\r\nContent-Disposition: form-data; name=\"file\"; filename=\"drop.txt\"\r\n"
                 f"Content-Type: text/plain\r\n\r\n").encode()
         tail = f"\r\n--{boundary}--\r\n".encode()
@@ -692,8 +692,8 @@ def make_request(feed, content_type, content_length=None):
     if content_length is not None:
         headers.append((b"content-length", str(content_length).encode()))
     scope = {"type": "http", "asgi": {"version": "3.0", "spec_version": "2.3"}, "http_version": "1.1",
-             "method": "POST", "scheme": "http", "path": "/api/plugins/flowcanvas/x/uploads",
-             "raw_path": b"/api/plugins/flowcanvas/x/uploads", "query_string": b"", "root_path": "",
+             "method": "POST", "scheme": "http", "path": "/api/plugins/arachne-flow/x/uploads",
+             "raw_path": b"/api/plugins/arachne-flow/x/uploads", "query_string": b"", "root_path": "",
              "headers": headers, "client": ("127.0.0.1", 5555), "server": ("testserver", 80)}
     return Request(scope, feed)
 
