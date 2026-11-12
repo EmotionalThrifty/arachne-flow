@@ -1142,6 +1142,15 @@ async def handle(method: str, path: str, query: dict, body: dict, env) -> dict:
             result = await GEN.generate(env, body)
             _emit_changed(env, result["flow"], _origin(body, query))
             return result
+        if parts == ["generate", "jobs"] and method == "POST":
+            # Background build: answers at once; the UI polls GET generate/jobs/<id> (no long-held request).
+            origin = _origin(body, query)
+            return GEN.start_job(env, body, on_done=lambda result: _emit_changed(env, result["flow"], origin))
+        if len(parts) == 3 and parts[:2] == ["generate", "jobs"]:
+            if method == "GET":
+                return await asyncio.to_thread(GEN.get_job, env, parts[2], query.get("wait") or 0)
+            if method == "DELETE":
+                return await asyncio.to_thread(GEN.cancel_job, env, parts[2])
         if parts == ["options"] and method == "GET":
             return await _options(env, query)
         if parts == ["runs"]:

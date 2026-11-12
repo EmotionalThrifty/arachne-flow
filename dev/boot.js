@@ -98,7 +98,7 @@ const ctx = {
   async rest(path, opts = {}) {
     const method = opts.method || 'GET'
     if (path === '/x/runs' && method === 'POST') diag.runRequests.push(opts.body || {})
-    if (path === '/x/generate' && method === 'POST') (diag.generateRequests = diag.generateRequests || []).push(opts.body || {})
+    if ((path === '/x/generate' || path === '/x/generate/jobs') && method === 'POST') (diag.generateRequests = diag.generateRequests || []).push(opts.body || {})
     if (path.startsWith('/x/runs/') && method === 'GET') diag.runFetches += 1
     if (path.startsWith('/x/runs/') && path.endsWith('/cancel') && method === 'POST') diag.cancelRequests.push(path)
     // U-10: Desktop's bridge sends a plugin `upload` as one multipart part named "file" (electron main.ts,

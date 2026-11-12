@@ -1,4 +1,4 @@
-"""Regression: generator budgets include host fallback, without provider-specific reasoning flags."""
+"""Regression: Build with Hermes has no overall deadline (background job + Stop), only a per-call stall guard."""
 import asyncio
 import json
 import time
@@ -64,24 +64,21 @@ class GenerateDeadlineTest(unittest.TestCase):
         self.assertIn("input.text", rows)
         self.assertNotIn("tool:unrelated_000", rows)
 
-    def test_request_deadline_spans_repair_and_never_saves_a_late_result(self):
+    def test_slow_repair_is_not_cut_off_by_an_overall_deadline(self):
         calls = []
 
         async def delayed(*args, **kwargs):
             calls.append(1)
             if len(calls) == 1:
                 return "not JSON"
-            await asyncio.sleep(1)
+            await asyncio.sleep(0.3)
             return json.dumps({"ops": [{"op": "add_node", "ref": "a", "type": "input.text"}]})
 
-        before = self.engine.store.list_flows(self.env)
-        with patch.object(self.engine.generate, "_complete", side_effect=delayed), \
-                patch.object(self.engine.generate, "GENERATION_TIMEOUT_S", 0.2):
-            with self.assertRaises(self.engine.generate.GenerateError) as caught:
-                asyncio.run(self.engine.generate.generate(self.env, {"prompt": "Make a text input"}))
-        self.assertEqual(caught.exception.status, 504)
+        with patch.object(self.engine.generate, "_complete", side_effect=delayed):
+            result = asyncio.run(self.engine.generate.generate(self.env, {"prompt": "Make a text input"}))
         self.assertEqual(len(calls), 2)
-        self.assertEqual(self.engine.store.list_flows(self.env), before)
+        self.assertTrue(result["created"] and result["repaired"])
+        self.assertFalse(hasattr(self.engine.generate, "GENERATION_TIMEOUT_S"))
 
     def test_large_catalog_keeps_schemas_already_used_in_the_flow(self):
         types = self.engine.nodes.types_by_name(self.env)
@@ -122,11 +119,11 @@ class GenerateDeadlineTest(unittest.TestCase):
         self.assertEqual(value, '{"ops":[]}')
         self.assertEqual(len(calls), 1)
 
-    def test_ui_defaults_are_low_effort_and_interactive_not_multi_minute(self):
+    def test_defaults_allow_long_thinking_and_large_answers(self):
         g = self.engine.generate
         self.assertEqual(g.GENERATE_TASK_DEFAULTS.get("reasoning_effort"), "low")
-        self.assertLessEqual(g.LLM_TIMEOUT_S, 30)
-        self.assertLessEqual(g.GENERATION_TIMEOUT_S, 75)
+        self.assertGreaterEqual(g.LLM_TIMEOUT_S, 600)        # a stall guard per call, not a UI deadline
+        self.assertGreaterEqual(g.MAX_REPLY_TOKENS, 8192)
 
     def test_builder_instructions_do_not_ship_the_whole_agent_audit(self):
         types = self.engine.nodes.types_by_name(self.env)
@@ -150,12 +147,122 @@ class GenerateDeadlineTest(unittest.TestCase):
 
         self.ctx.llm = PendingHost()
         before = self.engine.store.list_flows(self.env)
-        with patch.object(self.engine.generate, "GENERATION_TIMEOUT_S", 0.2):
+        with patch.object(self.engine.generate, "LLM_TIMEOUT_S", 0.1):   # host call stalls: per-call guard fires
             with self.assertRaises(self.engine.generate.GenerateError) as caught:
                 asyncio.run(self.engine.generate.generate(self.env, {"prompt": "Build"}))
         self.assertEqual(caught.exception.status, 504)
         self.assertEqual(cancelled, [True])
         self.assertEqual(self.engine.store.list_flows(self.env), before)
+
+
+class GenerateJobTest(unittest.TestCase):
+    """POST generate/jobs: the request answers at once, the build runs in the background, Stop cancels it."""
+
+    def setUp(self):
+        helpers.temp_data_dir()
+        self.engine = helpers.load_engine()
+        self.g = self.engine.generate
+        self.ctx = helpers.FakeCtx({})
+        self.env = self.engine.env.Env(ctx=self.ctx, state={"tool_source": lambda: []})
+
+    def wait(self, job_id, timeout=10):
+        end = time.time() + timeout
+        while time.time() < end:
+            job = self.g.get_job(self.env, job_id)
+            if job["status"] != "running":
+                return job
+            time.sleep(0.02)
+        self.fail("job did not finish")
+
+    def test_job_answers_at_once_then_saves_the_flow(self):
+        phases = []
+
+        class SlowHost:
+            async def acomplete(self, messages, **kwargs):
+                await asyncio.sleep(0.4)
+                return SimpleNamespace(text=json.dumps({"name": "Long", "ops": [
+                    {"op": "add_node", "ref": "a", "type": "input.text"}]}))
+
+        self.ctx.llm = SlowHost()
+        changed = []
+        started = time.time()
+        job = self.g.start_job(self.env, {"prompt": "Make a text input"}, on_done=changed.append)
+        self.assertLess(time.time() - started, 0.3)
+        self.assertEqual(job["status"], "running")
+        phases.append(self.g.get_job(self.env, job["id"])["phase"])
+        done = self.wait(job["id"])
+        self.assertEqual(done["status"], "done")
+        self.assertTrue(done["result"]["created"])
+        self.assertEqual(done["phase"], "done")
+        self.assertEqual(len(changed), 1)
+        self.assertIn(phases[0], ("starting", "thinking"))
+        ids = [f["id"] for f in self.engine.store.list_flows(self.env)]
+        self.assertIn(done["result"]["flow"]["id"], ids)
+
+    def test_stop_cancels_the_host_call_and_saves_nothing(self):
+        cancelled = []
+
+        class PendingHost:
+            async def acomplete(self, messages, **kwargs):
+                try:
+                    await asyncio.sleep(30)
+                except asyncio.CancelledError:
+                    cancelled.append(True)
+                    raise
+                return SimpleNamespace(text='{"ops":[]}')
+
+        self.ctx.llm = PendingHost()
+        before = self.engine.store.list_flows(self.env)
+        job = self.g.start_job(self.env, {"prompt": "Build"})
+        end = time.time() + 5
+        while self.g.get_job(self.env, job["id"])["phase"] != "thinking" and time.time() < end:
+            time.sleep(0.02)
+        stopped = self.g.cancel_job(self.env, job["id"])
+        self.assertEqual(stopped["status"], "cancelled")
+        time.sleep(0.1)
+        self.assertEqual(cancelled, [True])
+        self.assertEqual(self.engine.store.list_flows(self.env), before)
+
+    def test_bad_input_and_stale_revision_fail_before_a_job_starts(self):
+        with self.assertRaises(self.g.GenerateError):
+            self.g.start_job(self.env, {"prompt": "   "})
+        flow = self.engine.store.create_flow(self.env, name="Base")
+        with self.assertRaises(self.engine.store.ConflictError):
+            self.g.start_job(self.env, {"prompt": "Edit", "flow_id": flow["id"], "base_revision": 999})
+        self.assertEqual(self.env.state.get("generate_jobs", {}), {})
+
+    def test_invalid_answers_end_as_a_readable_job_error(self):
+        class BadHost:
+            async def acomplete(self, messages, **kwargs):
+                return SimpleNamespace(text="no json here")
+
+        self.ctx.llm = BadHost()
+        job = self.wait(self.g.start_job(self.env, {"prompt": "Build"})["id"])
+        self.assertEqual(job["status"], "error")
+        self.assertEqual(job["error"]["status"], 400)
+        self.assertIn("after one repair", job["error"]["message"])
+
+    def test_long_poll_returns_on_the_next_change_not_after_the_full_wait(self):
+        class SlowHost:
+            async def acomplete(self, messages, **kwargs):
+                await asyncio.sleep(0.3)
+                return SimpleNamespace(text=json.dumps({"ops": [{"op": "add_node", "ref": "a", "type": "input.text"}]}))
+
+        self.ctx.llm = SlowHost()
+        job = self.g.start_job(self.env, {"prompt": "Build"})
+        started = time.time()
+        while True:
+            view = self.g.get_job(self.env, job["id"], wait=5)
+            if view["status"] != "running":
+                break
+        self.assertEqual(view["status"], "done")
+        self.assertLess(time.time() - started, 3)
+        self.assertEqual(self.g.get_job(self.env, job["id"], wait="junk")["status"], "done")
+
+    def test_unknown_job_is_404(self):
+        with self.assertRaises(self.g.GenerateError) as caught:
+            self.g.get_job(self.env, "g_missing")
+        self.assertEqual(caught.exception.status, 404)
 
 
 if __name__ == "__main__":

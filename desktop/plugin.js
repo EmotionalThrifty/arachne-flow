@@ -878,14 +878,18 @@ function applyRemote(doc, flow) {
 }
 
 // ---- Build with Hermes (G6): controlled draft, so an error never discards the prompt or model.
-const generateInitial = () => ({ open: false, busy: false, error: '', draft: { prompt: '', model: null, provider: null } })
+const generateInitial = () => ({ open: false, busy: false, error: '', draft: { prompt: '', model: null, provider: null },
+  jobId: null, phase: '', elapsed: 0 })
 function generateReducer(state, action) {
   switch (action.type) {
     case 'open': return { ...state, open: true, error: '' }
-    case 'close': return { ...state, open: false, busy: false, error: '' }
+    case 'close': return { ...state, open: false, busy: false, error: '', jobId: null, phase: '', elapsed: 0 }
     case 'edit': return { ...state, draft: { ...state.draft, ...action.patch }, error: '' }
-    case 'start': return { ...state, busy: true, error: '' }
-    case 'fail': return { ...state, busy: false, error: action.error || 'Could not build the flow.' }
+    case 'start': return { ...state, busy: true, error: '', jobId: null, phase: 'starting', elapsed: 0 }
+    case 'progress': return state.busy
+      ? { ...state, jobId: action.jobId || state.jobId, phase: action.phase || state.phase, elapsed: Number(action.elapsed) || 0 }
+      : state
+    case 'fail': return { ...state, busy: false, jobId: null, phase: '', elapsed: 0, error: action.error || 'Could not build the flow.' }
     case 'success': return generateInitial()
     default: return state
   }
@@ -900,6 +904,51 @@ function generationBody({ prompt, flow = null, baseRevision = null, model = null
   if (!isBlank(model)) body.model = model
   if (!isBlank(provider)) body.provider = provider
   return body
+}
+// A build runs as a background job (POST generate/jobs) that the UI polls, so no request has to stay open for as long
+// as the model thinks; there is no overall time limit, only Cancel.
+const GENERATE_POLL_MS = [200, 400, 700, 1000]
+const GENERATE_POLL_WAIT_S = 4
+const GENERATE_POLL_MISSES = 5
+const GENERATE_PHASES = {
+  starting: 'Starting…', thinking: 'Hermes is designing the flow', repairing: 'Fixing a validation error (one repair)',
+  saving: 'Saving the validated flow',
+}
+function generationStatus(phase, elapsed) {
+  const secs = Math.max(0, Math.round(Number(elapsed) || 0))
+  const time = secs >= 60 ? `${Math.floor(secs / 60)} min ${String(secs % 60).padStart(2, '0')} s` : `${secs} s`
+  return `${GENERATE_PHASES[phase] || 'Working'} · ${time}`
+}
+/** A failed job as the Error shape parseRestError reads ("<status>: {detail}"), so 409 conflicts keep working. */
+function generationJobError(e) {
+  const err = e && typeof e === 'object' ? e : {}
+  const message = String(err.message || 'Could not build the flow.')
+  if (!err.status) return new Error(message)
+  const detail = err.code === 'conflict'
+    ? { code: 'conflict', message, current_revision: err.current_revision ?? null }
+    : message
+  return new Error(`${err.status}: ${JSON.stringify({ detail })}`)
+}
+/** Start a build job and poll it to the end. Resolves with the generate result, rejects with a REST-shaped error.
+ *  A few failed polls in a row are tolerated (a gateway blip must not lose a build that is still running). Pure
+ *  apart from `api`, tested. */
+async function runGenerationJob(api, body, { onProgress, sleep = (ms) => new Promise((r) => setTimeout(r, ms)) } = {}) {
+  let job = await api.generateStart(body)
+  let polls = 0
+  let misses = 0
+  while (job && job.status === 'running') {
+    if (onProgress) onProgress(job)
+    await sleep(GENERATE_POLL_MS[Math.min(polls++, GENERATE_POLL_MS.length - 1)])
+    try {
+      job = await api.generateJob(job.id)
+      misses = 0
+    } catch (err) {
+      if (parseRestError(err).status === 404 || ++misses >= GENERATE_POLL_MISSES) throw err
+    }
+  }
+  if (job && job.status === 'done') return job.result
+  if (job && job.status === 'cancelled') throw new Error('Build cancelled. Nothing was saved; your prompt is preserved.')
+  throw generationJobError(job && job.error)
 }
 function generationSummary(result) {
   const summary = result.summary || {}
@@ -2086,6 +2135,10 @@ function makeApi(ctx) {
       { node_id: nodeId, enable: !!enable, allow_attachments: allowAttachments === true, base_revision: base, origin: 'ui' }),
     validate: (flowId) => call('POST', 'validate', { flow_id: flowId }),
     generate: (body) => call('POST', 'generate', body, 420000),
+    generateStart: (body) => call('POST', 'generate/jobs', body),
+    // Long poll: the backend answers on the next phase change or after `wait` seconds.
+    generateJob: (id) => call('GET', `generate/jobs/${encodeURIComponent(id)}?wait=${GENERATE_POLL_WAIT_S}`, undefined, (GENERATE_POLL_WAIT_S + 20) * 1000),
+    generateCancel: (id) => call('DELETE', `generate/jobs/${encodeURIComponent(id)}`),
     startRun: (body) => call('POST', 'runs', body),
     runs: (flowId, limit) => call('GET', `runs?${qs({ flow_id: flowId, limit })}`),
     run: (id) => call('GET', `runs/${encodeURIComponent(id)}`),
@@ -4345,7 +4398,7 @@ function Canvas(p) {
   flow.nodes.length === 0 && !fileOver ? h('div', { className: 'fc-hint fc-generate-hint' },
     h('div', { className: 'fc-hint-title' }, 'Start building'),
     p.generation ? h(GenerateComposer, {
-      flow, generation: p.generation, onEdit: p.onGenerateEdit, onSubmit: p.onGenerate, inline: true,
+      flow, generation: p.generation, onEdit: p.onGenerateEdit, onSubmit: p.onGenerate, onStop: p.onGenerateStop, inline: true,
     }) : null,
     h('div', { className: 'fc-help', style: { marginTop: 10 } },
       'Or click/drag a node from the left panel. Connect an output to an input, then press Run.'),
@@ -4492,7 +4545,7 @@ function ModelPicker({ model, provider, onChange, eager = false, disabled = fals
 }
 
 /** Controlled G6 composer. The parent owns draft/busy/error so a failed request loses none of the input. */
-function GenerateComposer({ flow, generation, onEdit, onSubmit, onCancel, inline = false }) {
+function GenerateComposer({ flow, generation, onEdit, onSubmit, onCancel, onStop, inline = false }) {
   const { draft, busy, error } = generation
   const submit = () => {
     if (!busy && draft.prompt.trim()) onSubmit()
@@ -4527,7 +4580,12 @@ function GenerateComposer({ flow, generation, onEdit, onSubmit, onCancel, inline
           type: 'button', className: 'fc-btn primary', 'data-fc-generate-submit': '1',
           disabled: busy || !draft.prompt.trim(), title: 'Build and validate the graph (Ctrl+Enter)', onClick: submit
         }, h(Icon, { name: busy ? 'loading' : 'sparkle', spin: busy }), busy ? 'Building…' : flow ? 'Apply changes' : 'Build flow'))),
-    busy ? h('div', { className: 'fc-generate-busy' }, 'Hermes is building and validating the graph; one repair is allowed.') : null,
+    busy ? h('div', { className: 'fc-generate-busy fc-row', 'data-fc-generate-status': '1', role: 'status' },
+      h('span', null, generationStatus(generation.phase, generation.elapsed)),
+      onStop ? h('button', {
+        type: 'button', className: 'fc-btn', 'data-fc-generate-stop': '1', disabled: !generation.jobId,
+        title: 'Stop this build; nothing is saved', onClick: onStop
+      }, 'Stop') : null) : null,
     error ? h('div', { className: 'fc-generate-error', 'data-fc-generate-error': '1', role: 'alert' }, error) : null)
 }
 
@@ -6932,7 +6990,7 @@ function ScheduleDialog({ flow, onSubmit, onCancel }) {
         busy ? h(Icon, { name: 'loading', spin: true }) : null, 'Prepare in chat'))))
 }
 
-function Welcome({ templates, hasFlows, onNew, onFromTemplate, onOpenMenu, generation, onGenerate, onGenerateEdit }) {
+function Welcome({ templates, hasFlows, onNew, onFromTemplate, onOpenMenu, generation, onGenerate, onGenerateEdit, onGenerateStop }) {
   return h('div', { className: 'fc-welcome' },
     h('div', { className: 'fc-welcome-icon' }, h(Icon, { name: 'type-hierarchy' })),
     h('h2', null, hasFlows ? 'Open a flow' : 'Build your first flow'),
@@ -6940,7 +6998,7 @@ function Welcome({ templates, hasFlows, onNew, onFromTemplate, onOpenMenu, gener
     h('div', { className: 'fc-row center' },
       h('button', { className: 'fc-btn primary', onClick: onNew }, h(Icon, { name: 'add' }), 'New blank flow'),
       hasFlows ? h('button', { className: 'fc-btn', onClick: onOpenMenu }, h(Icon, { name: 'type-hierarchy' }), 'Your flows') : null),
-    h(GenerateComposer, { flow: null, generation, onEdit: onGenerateEdit, onSubmit: onGenerate, inline: true }),
+    h(GenerateComposer, { flow: null, generation, onEdit: onGenerateEdit, onSubmit: onGenerate, onStop: onGenerateStop, inline: true }),
     templates.length > 0 ? h('div', { className: 'fc-templates' },
       [...splitTemplates(templates).own, ...splitTemplates(templates).builtin].map((t) => h('button', {
         key: t.id,
@@ -7045,6 +7103,7 @@ function ArachneFlowPage({ ctx }) {
   const baseRevRef = useRef(null)
   const savingRef = useRef(null)
   const generatingRef = useRef(false)
+  const generationJobRef = useRef(null)   // id of the running build job, for Stop
   const saveTimerRef = useRef(null)
   const openTokenRef = useRef(0)
   const needFitRef = useRef(false)
@@ -7409,6 +7468,15 @@ function ArachneFlowPage({ ctx }) {
       }
     })
   }
+  const stopGeneration = async () => {
+    const id = generationJobRef.current
+    if (!id) return
+    try {
+      await api.generateCancel(id)   // the poll loop then reports "Build cancelled" and keeps the prompt
+    } catch (err) {
+      notify(parseRestError(err).message, 'error')
+    }
+  }
   const generateFlow = async () => {
     if (generatingRef.current) return
     const draft = { ...generation.draft }
@@ -7425,9 +7493,14 @@ function ArachneFlowPage({ ctx }) {
       if (original && flowRef.current !== loadedRef.current) throw new Error('Save the current edits successfully before building with Hermes.')
       await chainWork(async () => {
         try {
-          const res = await api.generate(generationBody({
+          const res = await runGenerationJob(api, generationBody({
             ...draft, flow: original, baseRevision: original ? baseRevRef.current : null,
-          }))
+          }), {
+            onProgress: (job) => {
+              generationJobRef.current = job.id
+              dispatchGeneration({ type: 'progress', jobId: job.id, phase: job.phase, elapsed: job.elapsed_s })
+            },
+          })
           if (!res.created) {
             if (!flowRef.current || flowRef.current.id !== res.flow.id) {
               throw new Error(`Hermes saved the changes to “${res.flow.name}”; open it from Flows to view them.`)
@@ -7472,6 +7545,7 @@ function ArachneFlowPage({ ctx }) {
       }
     } finally {
       generatingRef.current = false
+      generationJobRef.current = null
     }
   }
   const loadTheirs = async () => {
@@ -8087,7 +8161,7 @@ function ArachneFlowPage({ ctx }) {
   } else if (!flow) {
     body = h('div', { className: 'fc-center' }, h(Welcome, {
       templates, hasFlows: flows.length > 0, onNew: newFlow, onFromTemplate: newFromTemplate, onOpenMenu: () => setMenuOpen(true),
-      generation, onGenerate: generateFlow, onGenerateEdit: (patch) => dispatchGeneration({ type: 'edit', patch }),
+      generation, onGenerate: generateFlow, onGenerateEdit: (patch) => dispatchGeneration({ type: 'edit', patch }), onGenerateStop: stopGeneration,
     }))
   } else {
     body = h('div', { className: 'fc-main' },
@@ -8096,7 +8170,7 @@ function ArachneFlowPage({ ctx }) {
         flow, types, recent, layouts, connectedIn, connectedOut, run, running, selection, selectedEdge, issuesByNode, view, setView, expanded, api,
         timings, nameOf, wireCounts, loopOwners,
         heightsRef, needFitRef, fitRef, sizeRef,
-        generation, onGenerate: generateFlow, onGenerateEdit: (patch) => dispatchGeneration({ type: 'edit', patch }),
+        generation, onGenerate: generateFlow, onGenerateEdit: (patch) => dispatchGeneration({ type: 'edit', patch }), onGenerateStop: stopGeneration,
         onFocusRoot: focusRoot,
         onSelect: select,
         onSelectEdge: (id) => {
@@ -8240,6 +8314,7 @@ function ArachneFlowPage({ ctx }) {
       flow, generation,
       onEdit: (patch) => dispatchGeneration({ type: 'edit', patch }),
       onSubmit: generateFlow,
+      onStop: stopGeneration,
       onCancel: () => dispatchGeneration({ type: 'close' }),
     }))) : null,
     templateDialog ? h(TemplateDialog, {
@@ -8308,6 +8383,7 @@ const cacheSizes = () => ({
   toolOptions: optionsCache.size
 })
 const _internals = {
+  runGenerationJob, generationJobError, generationStatus, GENERATE_POLL_MS,
   NODE_W, HEAD_H, PORTS_TOP, ROW_H, GRID, MIN_ZOOM, MAX_ZOOM, COLLAPSE_AFTER, VISIBLE_OPTIONAL, UNDO_LIMIT, POLL_MS,
   // U-4: pure helpers used by the canvas render path (tested in tests/js/perf.test.mjs)
   edgePathWorld, rafThrottle, NodeCard, nodeCardPropsEqual, Canvas,

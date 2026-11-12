@@ -10,6 +10,9 @@ import inspect
 import json
 import os
 import re
+import threading
+import time
+import uuid
 
 from . import executors as E
 from . import graph as G
@@ -20,14 +23,18 @@ from .executors import _llm_call   # review E-14: one sync bridge for both the L
 SKILL_PATH = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
                           "skills", "arachne-flow", "SKILL.md")
 MAX_PROMPT_CHARS = 12000
-LLM_TIMEOUT_S = 30
-# Interactive UI work: at most two bounded proposals, including the single repair.
-GENERATION_TIMEOUT_S = 65
+# No deadline for the whole build: it may take as long as the model needs (thinking models, large flows). This
+# only guards ONE model call that never answers; the host API has no streaming, so it is a per-call stall limit.
+LLM_TIMEOUT_S = 900
 MAX_CATALOG_CHARS = 24000
-MAX_REPLY_TOKENS = 3072
+# Reasoning tokens count against this on some providers; a large flow's ops JSON needs room too.
+MAX_REPLY_TOKENS = 16384
 MAX_REPAIRS = 1
 GENERATE_TASK = "arachne_flow_generate"
-GENERATE_TASK_VERSION = 3
+GENERATE_TASK_VERSION = 4
+# Background builds (POST generate/jobs): finished jobs stay readable for a while, then are dropped.
+JOB_KEEP_S = 15 * 60
+MAX_JOBS = 32
 GENERATE_TASK_DEFAULTS = {"timeout": LLM_TIMEOUT_S, "reasoning_effort": "low"}
 
 
@@ -41,6 +48,11 @@ class GenerateError(ValueError):
 
 class CandidateError(ValueError):
     """A model answer that can be sent back for its single repair round."""
+
+
+def _minutes(seconds: float) -> str:
+    minutes = max(1, round(seconds / 60))
+    return f"{minutes} minute" + ("" if minutes == 1 else "s")
 
 
 def _ensure_generate_task(env) -> None:
@@ -115,8 +127,8 @@ async def _complete(env, messages, model=None, provider=None):
                 raise
     except asyncio.TimeoutError:
         raise GenerateError(
-            "The selected model did not finish the flow proposal within the interactive deadline. "
-            "No changes were saved; your prompt is preserved. Try a smaller request or another model.", 504) from None
+            f"The selected model sent no answer for {_minutes(LLM_TIMEOUT_S)}. No changes were saved; "
+            "your prompt is preserved. Try again or pick another model.", 504) from None
     except PermissionError:
         raise GenerateError(
             "Hermes refused the selected model/provider. Allow model and provider overrides under "
@@ -362,15 +374,16 @@ def _optional_text(body: dict, key: str):
     return value.strip() or None
 
 
-async def generate(env, body: dict) -> dict:
-    # A single budget spans both proposals. Timed-out workers never reach the save below.
-    try:
-        return await asyncio.wait_for(_generate(env, body), timeout=GENERATION_TIMEOUT_S)
-    except asyncio.TimeoutError:
-        raise GenerateError("Hermes could not finish within the generation deadline. Your prompt is preserved; try a smaller request or another model.", 504) from None
+async def generate(env, body: dict, progress=None) -> dict:
+    """Prompt -> validated, saved flow. No overall deadline; cancelling the task before the save leaves the store
+    untouched (the save is the last step and has no await inside)."""
+    return await _generate(env, _prepare(env, body), progress)
 
 
-async def _generate(env, body: dict) -> dict:
+def _prepare(env, body: dict) -> dict:
+    """Checks that can fail at once (bad input, stale revision), before a background job is started."""
+    if not isinstance(body, dict):
+        raise GenerateError("A JSON object is required.")
     prompt = body.get("prompt")
     if not isinstance(prompt, str) or not prompt.strip():
         raise GenerateError("A non-empty prompt is required.")
@@ -389,11 +402,22 @@ async def _generate(env, body: dict) -> dict:
             raise GenerateError("base_revision must be an integer") from None
         if stale:
             raise S.ConflictError(flow_id, int(before.get("revision", 0)), base_revision)
+    return {"prompt": prompt, "flow_id": flow_id, "model": model, "provider": provider,
+            "before": before, "base_revision": base_revision}
 
+
+async def _generate(env, job: dict, progress=None) -> dict:
+    def phase(name: str) -> None:
+        if callable(progress):
+            progress(name)
+
+    prompt, model, provider = job["prompt"], job["model"], job["provider"]
+    before, base_revision = job["before"], job["base_revision"]
     types = N.types_by_name(env)
     base_issues = G.validate(before, types) if before is not None else []
     base_errors = [i for i in base_issues if i.get("level") == "error"]
     messages = build_messages(prompt, before, types, known_issues=base_errors)
+    phase("thinking")
     raw = await _complete(env, messages, model=model, provider=provider)
     fallback_name = prompt.splitlines()[0][:80] or "Generated flow"
     candidate = None
@@ -419,8 +443,10 @@ async def _generate(env, body: dict) -> dict:
                 "Fix all operations rather than explaining the error. Do not run the flow."
             )
             messages = messages + [{"role": "assistant", "content": raw}, {"role": "user", "content": repair}]
+            phase("repairing")
             raw = await _complete(env, messages, model=model, provider=provider)
 
+    phase("saving")
     if before is None:
         # create_flow's create=True write, delayed until the graph is valid; no intermediate blank file.
         with S.lock(env, "flows:create"):
@@ -433,3 +459,138 @@ async def _generate(env, body: dict) -> dict:
         saved = S.save_flow(env, candidate, base_revision=revision)
     return {"flow": saved, "created": before is None, "repaired": repaired,
             "summary": _changes(before, saved)}
+
+
+# ---------------------------------------------------------------- background builds
+# The UI starts a job and polls it, so no HTTP request (Desktop bridge, gateway, plugin host) has to stay open for
+# the whole build. Jobs run on one private event loop thread per process; its handle lives in env.state, which
+# survives an engine hot reload.
+
+def _job_loop(env):
+    state = env.state
+    with _JOBS_LOCK:
+        loop = state.get("generate_loop")
+        if loop is not None and loop.is_running():
+            return loop
+        loop = asyncio.new_event_loop()
+        ready = threading.Event()
+
+        def run():
+            asyncio.set_event_loop(loop)
+            loop.call_soon(ready.set)
+            loop.run_forever()
+
+        threading.Thread(target=run, name="arachne-flow-generate", daemon=True).start()
+        ready.wait(5)
+        state["generate_loop"] = loop
+        return loop
+
+
+_JOBS_LOCK = threading.RLock()
+
+
+def _jobs(env) -> dict:
+    return env.state.setdefault("generate_jobs", {})
+
+
+def _prune(jobs: dict, now: float) -> None:
+    done = [j for j in jobs.values() if j["status"] != "running"]
+    for job in done:
+        if now - job["finished_at"] > JOB_KEEP_S:
+            jobs.pop(job["id"], None)
+    if len(jobs) > MAX_JOBS:
+        for job in sorted((j for j in jobs.values() if j["status"] != "running"), key=lambda j: j["finished_at"]):
+            if len(jobs) <= MAX_JOBS:
+                break
+            jobs.pop(job["id"], None)
+
+
+def _error_view(exc) -> dict:
+    if isinstance(exc, S.ConflictError):
+        return {"message": str(exc), "status": 409, "code": "conflict", "current_revision": exc.current_revision}
+    if isinstance(exc, GenerateError):
+        return {"message": str(exc), "status": exc.status}
+    return {"message": f"Hermes could not generate the flow: {type(exc).__name__}: {exc}", "status": 502}
+
+
+def job_view(job: dict) -> dict:
+    end = job["finished_at"] if job["status"] != "running" else time.time()
+    view = {"id": job["id"], "status": job["status"], "phase": job["phase"],
+            "elapsed_s": round(max(0.0, end - job["started_at"]), 1), "flow_id": job["flow_id"]}
+    if job.get("result") is not None:
+        view["result"] = job["result"]
+    if job.get("error") is not None:
+        view["error"] = job["error"]
+    return view
+
+
+def start_job(env, body: dict, on_done=None) -> dict:
+    """Validate now, build in the background. Returns the job view (status ``running``)."""
+    prepared = _prepare(env, body)
+    loop = _job_loop(env)
+    now = time.time()
+    job = {"id": "g_" + uuid.uuid4().hex[:12], "status": "running", "phase": "starting", "started_at": now,
+           "finished_at": now, "flow_id": prepared["flow_id"], "result": None, "error": None, "future": None}
+
+    def progress(name: str) -> None:
+        job["phase"] = name
+
+    async def run():
+        try:
+            result = await _generate(env, prepared, progress)
+        except asyncio.CancelledError:
+            job.update(status="cancelled", phase="cancelled", finished_at=time.time())
+            raise
+        except Exception as exc:  # noqa: BLE001 - every failure becomes a readable job error
+            job.update(status="error", phase="failed", error=_error_view(exc), finished_at=time.time())
+            return
+        job.update(status="done", phase="done", result=result, finished_at=time.time())
+        if callable(on_done):
+            try:
+                on_done(result)
+            except Exception:  # noqa: BLE001 - the flow is saved; a lost change event must not fail the job
+                pass
+
+    with _JOBS_LOCK:
+        jobs = _jobs(env)
+        _prune(jobs, now)
+        jobs[job["id"]] = job
+    job["future"] = asyncio.run_coroutine_threadsafe(run(), loop)
+    return job_view(job)
+
+
+MAX_JOB_WAIT_S = 5
+
+
+def get_job(env, job_id: str, wait: float = 0) -> dict:
+    """The job's state. With ``wait`` (seconds, capped) it long-polls: it returns as soon as the job's phase or
+    status changes, so the UI needs few requests and still sees the end at once. Blocking: call off the loop."""
+    with _JOBS_LOCK:
+        job = _jobs(env).get(job_id)
+    if job is None:
+        raise GenerateError("This build is unknown or expired.", 404)
+    try:
+        wait = min(max(float(wait or 0), 0.0), MAX_JOB_WAIT_S)
+    except (TypeError, ValueError):
+        wait = 0.0
+    seen, end = (job["status"], job["phase"]), time.time() + wait
+    while job["status"] == "running" and (job["status"], job["phase"]) == seen and time.time() < end:
+        time.sleep(0.05)
+    return job_view(job)
+
+
+def cancel_job(env, job_id: str) -> dict:
+    """Stop a running build. Nothing is saved unless the save already happened (then the job reports done)."""
+    with _JOBS_LOCK:
+        job = _jobs(env).get(job_id)
+    if job is None:
+        raise GenerateError("This build is unknown or expired.", 404)
+    future = job.get("future")
+    if job["status"] == "running" and future is not None:
+        future.cancel()
+        deadline = time.time() + 5
+        while job["status"] == "running" and time.time() < deadline:
+            time.sleep(0.02)
+        if job["status"] == "running":   # cancelled before the coroutine ever started
+            job.update(status="cancelled", phase="cancelled", finished_at=time.time())
+    return job_view(job)
