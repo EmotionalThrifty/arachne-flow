@@ -48,7 +48,8 @@ not call the opt-in action on the user's behalf. Building and static validation 
    writing ops. Prefer `preset.*` over raw `tool:*` nodes: presets have typed media ports and map fields.
 3. **Design the whole graph.** Map every input to the final output, including extraction, prompts,
    branch joins, loop collectors, and a useful last step. Every node already shows its own result on the
-   canvas, so do **not** add `output.preview` unless the user explicitly asks for a preview/display node, and
+   canvas (image thumbnails, inline video/audio players, and GLB thumbnails with a larger interactive 3D
+   viewer), so do **not** add `output.preview` unless the user explicitly asks for a preview/display node, and
    never route data through one. Feed each product (image, mesh, video, text) into the step that needs it;
    if no available node can consume it, say so instead of faking the link. Perform the **Mandatory flow
    audit** below for every node and every parameter, not only nodes you added or changed.

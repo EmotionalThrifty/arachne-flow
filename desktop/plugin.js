@@ -2660,6 +2660,13 @@ const CSS = `
 .fc-mini-file { margin-top: 6px; display: flex; align-items: center; gap: 8px; font-size: 12.5px;
   color: var(--ui-text-primary); }
 .fc-mini-file .codicon { font-size: 19px; }
+.fc-mini-player { margin-top: 7px; min-height: 56px; border-radius: 6px; overflow: hidden; }
+.fc-mini-player[data-fc-inline-media="video"], .fc-mini-player[data-fc-inline-media="model3d"] { min-height: 140px; }
+.fc-mini-player video { display: block; width: 100%; height: 140px; object-fit: contain; background: var(--ui-bg-elevated); }
+.fc-mini-player audio { display: block; width: 100%; height: 40px; }
+.fc-mini-player .fc-mini-unavailable { padding: 8px 0; font-size: 11px; color: var(--ui-text-tertiary); }
+.fc-model-thumb { display: block; width: 100%; height: 140px; object-fit: contain; border-radius: 6px;
+  background: var(--ui-bg-elevated); }
 .fc-mini-text { margin-top: 6px; font-size: 12.5px; line-height: 1.55; color: var(--ui-text-primary);
   white-space: pre-wrap; overflow-wrap: anywhere; display: -webkit-box; -webkit-line-clamp: 3;
   -webkit-box-orient: vertical; overflow: hidden; }
@@ -3037,6 +3044,52 @@ function MiniThumb({ api, runId, nodeId, port, index, name }) {
   const thumb = useMedia(api, runId, nodeId, port, 320, true, index)
   if (thumb && thumb.data_url) return h('img', { src: thumb.data_url, alt: name || '', draggable: false })
   return h(Icon, { name: thumb && thumb.error ? 'warning' : MEDIA_ICON.image })
+}
+
+/** Off-screen outputs should not fetch media or hold decoders. Keep the wrapper's dimensions while hidden. */
+function useMediaVisible(ref) {
+  const [visible, setVisible] = useState(typeof IntersectionObserver !== 'function')
+  useEffect(() => {
+    if (!ref.current || typeof IntersectionObserver !== 'function') return undefined
+    const observer = new IntersectionObserver((entries) => setVisible(entries.some((e) => e.isIntersecting)),
+      { rootMargin: '100px' })
+    observer.observe(ref.current)
+    return () => observer.disconnect()
+  }, [ref])
+  return visible
+}
+
+/** A video/audio player or mesh thumbnail in ANY producer node, not a dedicated output.preview node.
+ *  Only the existing guarded media route is used; no remote URLs or file:// reads. The header still opens
+ *  the large viewer. Player controls must not start a drag, open a dialog or trigger canvas shortcuts. */
+function MiniMedia({ api, runId, nodeId, port, index, kind, name }) {
+  const stop = (e) => e.stopPropagation()
+  const ref = useRef(null)
+  const visible = useMediaVisible(ref)
+  const data = useMedia(api, runId, nodeId, port, 0, visible, index)
+  const [failed, setFailed] = useState(null)
+  const src = data && data.data_url
+  const key = `${runId}|${nodeId}|${port}|${index}|${src ? src.length : 0}`
+  let body
+  if (failed === key) body = h('div', { className: 'fc-mini-unavailable' }, 'This media format cannot be played here.')
+  else if (data && data.error) body = h('div', { className: 'fc-mini-unavailable' }, `Preview unavailable: ${data.error}`)
+  else if (!visible || !data) body = h('div', { className: 'fc-mini-unavailable' }, !visible ? 'Preview' : 'Loading preview…')
+  else if (!src) body = h('div', { className: 'fc-mini-unavailable' }, 'File too large for inline preview — open it from the viewer.')
+  else if (kind === 'model3d') {
+    const file = data.name || name || ''
+    body = /\.glb$/i.test(file)
+      ? h(ModelThumbnail, { cacheKey: `${runId}|${nodeId}|${port}|${index}`, dataUrl: src, name })
+      : h('div', { className: 'fc-mini-unavailable' }, 'Only GLB models can be previewed here; the original file is preserved.')
+  } else body = h(kind === 'video' ? 'video' : 'audio', {
+    key, src, controls: true, preload: 'metadata', playsInline: true,
+    'aria-label': name || kind, onError: () => setFailed(key)
+  })
+  const controls = kind === 'video' || kind === 'audio'
+  return h('div', {
+    ref, className: 'fc-mini-player', 'data-fc-inline-media': kind, 'data-fc-nodrag': '1',
+    onPointerDown: stop, onDoubleClick: controls ? stop : undefined,
+    onClick: controls ? stop : undefined, onKeyDown: controls ? stop : undefined, onWheel: controls ? stop : undefined,
+  }, body)
 }
 
 // File node previews (G3): what the SAVED node points at. Keyed by flow, node and the raw path; `savedRev` only
@@ -3768,6 +3821,9 @@ const NodeCard = memo(function NodeCard(p) {
       it.kind === 'image' && it.link
         ? h('div', { className: 'fc-mini-thumb' },
           h(MiniThumb, { api, runId, nodeId: node.id, port: it.port, index: it.index, name: it.detail }))
+        : it.link && ['video', 'audio', 'model3d'].includes(it.kind)
+          ? h(MiniMedia, { api, runId, nodeId: node.id, port: it.port, index: it.index, kind: it.kind,
+            name: it.media.file || it.detail })
         : it.media
           ? h('div', { className: 'fc-mini-file' },
             h(Icon, { name: it.kind === 'broken' ? 'warning' : MEDIA_ICON[it.kind] || 'file' }),
@@ -5764,6 +5820,7 @@ function createModelRenderer(canvas, model, onChange) {
     return b
   }
   let dead = false
+  const textureJobs = []
   const parts = model.primitives.map((p) => {
     const part = {
       pos: buffer(gl.ARRAY_BUFFER, p.positions), nrm: buffer(gl.ARRAY_BUFFER, p.normals),
@@ -5772,13 +5829,13 @@ function createModelRenderer(canvas, model, onChange) {
       count: p.indices.length, color: p.color, tex: null
     }
     if (p.image && typeof createImageBitmap === 'function') {
-      Promise.resolve().then(() => createImageBitmap(new Blob([p.image.bytes], { type: p.image.mime }))).then((bmp) => {
+      textureJobs.push(Promise.resolve().then(() => createImageBitmap(new Blob([p.image.bytes], { type: p.image.mime }))).then((bmp) => {
         const t = uploadModelTexture(gl, bmp, dead)
         if (!t) return
         owned.textures.push(t)
         part.tex = t
         onChange()
-      }).catch(() => {})
+      }).catch(() => { /* unsupported textures fall back to the material colour */ }))
     }
     return part
   })
@@ -5787,6 +5844,7 @@ function createModelRenderer(canvas, model, onChange) {
   gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, 1, 1, 0, gl.RGBA, gl.UNSIGNED_BYTE, new Uint8Array([255, 255, 255, 255]))
   owned.textures.push(blank)
   return {
+    ready: Promise.all(textureJobs),
     draw(cam) {
       if (dead) return
       gl.viewport(0, 0, canvas.width, canvas.height)
@@ -5834,6 +5892,70 @@ function createModelRenderer(canvas, model, onChange) {
       if (lose) lose.loseContext()
     }
   }
+}
+
+/** Serial, bounded thumbnail cache: a canvas full of meshes must not create one persistent WebGL context
+ *  per node. A rejected thumbnail is retryable and never poisons the queue. clear() invalidates queued work. */
+function createModelThumbnailCache(render, maxEntries = 32) {
+  const entries = new Map()
+  let tail = Promise.resolve()
+  let generation = 0
+  return {
+    get(key, input) {
+      if (entries.has(key)) return entries.get(key)
+      const epoch = generation
+      const task = tail.then(() => {
+        if (epoch !== generation) throw new Error('Thumbnail cancelled')
+        return render(input)
+      })
+      tail = task.catch(() => undefined)
+      entries.set(key, task)
+      task.catch(() => { if (entries.get(key) === task) entries.delete(key) })
+      while (entries.size > maxEntries) entries.delete(entries.keys().next().value)
+      return task
+    },
+    clear() { generation++; entries.clear() },
+    size: () => entries.size,
+  }
+}
+
+async function renderModelThumbnail(dataUrl) {
+  const model = collectModel(parseGlb(dataUrlBytes(dataUrl)))
+  if (!model.primitives.length) throw new Error('The file has no triangle meshes')
+  const canvas = document.createElement('canvas')
+  canvas.width = 320
+  canvas.height = 200
+  let renderer
+  try {
+    renderer = createModelRenderer(canvas, model, () => {})
+    await renderer.ready
+    renderer.draw(fitOrbit(model.bounds))
+    // Read in the same task as draw(), before the non-preserved drawing buffer can be cleared.
+    return canvas.toDataURL('image/png')
+  } finally {
+    if (renderer) renderer.destroy()
+    canvas.width = canvas.height = 1
+  }
+}
+const MODEL_THUMBNAILS = createModelThumbnailCache(renderModelThumbnail)
+
+function ModelThumbnail({ cacheKey, dataUrl, name }) {
+  const [state, setState] = useState(null)
+  useEffect(() => {
+    let alive = true
+    MODEL_THUMBNAILS.get(cacheKey, dataUrl).then(
+      (image) => alive && setState({ key: cacheKey, image }),
+      (err) => alive && setState({ key: cacheKey, error: err.message || String(err) })
+    )
+    return () => { alive = false }
+  }, [cacheKey, dataUrl])
+  const result = state && state.key === cacheKey ? state : null
+  if (result && result.image) return h('img', {
+    className: 'fc-model-thumb', 'data-fc-model-thumbnail': 'ready', src: result.image,
+    alt: name || '3D model', draggable: false, title: 'Click to open the interactive 3D viewer'
+  })
+  return h('div', { className: 'fc-mini-unavailable', 'data-fc-model-thumbnail': result ? 'error' : 'loading' },
+    result ? `Cannot preview this mesh: ${result.error}` : 'Rendering 3D preview…')
 }
 
 /** The lightbox body for a .glb: drag to orbit, right-drag or Shift+drag to pan, scroll to zoom, double-click resets. */
@@ -8369,6 +8491,7 @@ function ArachneFlowPage({ ctx }) {
 // U-12: a reload hot-swaps a fresh copy of this module, so nothing app-side may inherit the old run's data:
 // media previews, file previews and model/tool catalogs are all thrown away when the host disposes the plugin.
 function clearCaches() {
+  MODEL_THUMBNAILS.clear()
   MEDIA_CACHE.clear()
   FILE_NODE_CACHE.clear()
   llmInfoCache.clear()
@@ -8383,6 +8506,7 @@ const cacheSizes = () => ({
   toolOptions: optionsCache.size
 })
 const _internals = {
+  MiniMedia, ModelThumbnail, createModelThumbnailCache,
   runGenerationJob, generationJobError, generationStatus, GENERATE_POLL_MS,
   NODE_W, HEAD_H, PORTS_TOP, ROW_H, GRID, MIN_ZOOM, MAX_ZOOM, COLLAPSE_AFTER, VISIBLE_OPTIONAL, UNDO_LIMIT, POLL_MS,
   // U-4: pure helpers used by the canvas render path (tested in tests/js/perf.test.mjs)

@@ -521,6 +521,51 @@ if (runAction) {
   }, 1500)
 }
 
+// Local real-media fixture: inline playback and a rendered GLB on ordinary producer nodes.
+if (params.get('inline_media')) {
+  ;(async () => {
+    const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms))
+    const waitFor = async (fn, label) => {
+      for (let i = 0; i < 100; i++) { const v = fn(); if (v) return v; await sleep(100) }
+      throw new Error(`inline media: timed out waiting for ${label}`)
+    }
+    const video = await waitFor(() => document.querySelector('.fc-node video'), 'video')
+    await waitFor(() => video.readyState >= 2, 'decoded video')
+    const thumb = await waitFor(() => document.querySelector('.fc-node img[data-fc-model-thumbnail="ready"]'), 'mesh thumbnail')
+    await waitFor(() => thumb.naturalWidth > 0, 'decoded mesh thumbnail')
+    const audio = await waitFor(() => document.querySelector('.fc-node audio'), 'audio')
+    await waitFor(() => audio.readyState >= 1, 'audio metadata')
+    const pixels = document.createElement('canvas')
+    pixels.width = thumb.naturalWidth; pixels.height = thumb.naturalHeight
+    const context = pixels.getContext('2d')
+    context.drawImage(thumb, 0, 0)
+    const rgba = context.getImageData(0, 0, pixels.width, pixels.height).data
+    let painted = 0
+    for (let i = 3; i < rgba.length; i += 4) if (rgba[i] > 0) painted++
+    diag.inlineMedia = {
+      nodeCount: document.querySelectorAll('[data-fc-node]').length,
+      video: { width: video.videoWidth, height: video.videoHeight, duration: video.duration,
+        controls: video.controls, autoplay: video.autoplay, pausedInitially: video.paused },
+      mesh: { width: thumb.naturalWidth, height: thumb.naturalHeight, painted },
+      audio: { duration: audio.duration, controls: audio.controls },
+    }
+    // Playback controls must not bubble to the lightbox or canvas drag handlers.
+    video.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, button: 0, pointerId: 5 }))
+    video.click()
+    diag.inlineMedia.playerOpenedDialog = !!document.querySelector('[data-fc-lightbox]')
+    video.muted = true
+    await video.play()
+    await waitFor(() => video.currentTime > 0, 'video playback')
+    diag.inlineMedia.video.played = !video.paused && video.currentTime > 0
+    video.pause()
+    if (params.get('inline_media') === 'shot') return
+    thumb.click()
+    await waitFor(() => document.querySelector('[data-fc-lightbox] [data-fc-3d="ready"]'), 'interactive mesh viewer')
+    diag.inlineMedia.mesh.interactiveViewer = true
+    document.querySelector('[data-fc-lightbox]').dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))
+  })().catch((err) => diag.errors.push(err.message || String(err)))
+}
+
 // G1 browser probe: open the lightbox from a node-card preview (lightbox=card) or the inspector image
 // (lightbox=inspector), browse with →, check the canvas ignores Delete, reveal the file, close with Esc.
 // lightbox=shot only opens it (for screenshots).

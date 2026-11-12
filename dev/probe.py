@@ -27,7 +27,7 @@ SCENARIOS = ("empty", "template", "running", "done", "inspector", "quick", "quic
              "partial", "fresh", "stop", "shortcut", "inspector_error", "tool_swap", "edit_keys",
              "agent_sync", "agent_sync_dirty", "agent_undo", "ask", "ask_none", "shell", "model_picker",
              "tool_options", "llm_info",
-             "lightbox", "lightbox_inspector", "palette", "files", "popin", "templates", "generate", "model_settings", "media_inputs", "timings", "logic", "loop", "schedule")
+             "lightbox", "lightbox_inspector", "palette", "files", "popin", "templates", "generate", "model_settings", "media_inputs", "inline_media", "timings", "logic", "loop", "schedule")
 
 
 def overlaps(nodes: list) -> list:
@@ -86,6 +86,8 @@ def probe(scenario: str, port: int, width=1600, height=1000) -> dict:
     if scenario == "media_inputs":
         picked = dev_server._fake_file("picked-detail.png", dev_server._png((180, 90, 180), (320, 200)))
         query.update(media_inputs="check", inspector="1", shell="desktop", diag_ms="10000", pick=picked)
+    if scenario == "inline_media":
+        query.update(inline_media="check", diag_ms="16000", shell="desktop")
     if scenario == "timings":
         query.update(timings="check", inspector="1", shell="desktop", diag_ms="9000")
     if scenario == "logic":
@@ -678,6 +680,19 @@ def main() -> int:
                 problems.append(f"recents after add: {d.get('paletteRecent')}")
         if s == "running" and d.get("runFetches", 0) < 2:
             problems.append(f"polling fallback did not refresh the active run: {d.get('runFetches')}")
+        if s == "inline_media":
+            media = d.get("inlineMedia") or {}
+            video, mesh, audio = (media.get(k) or {} for k in ("video", "mesh", "audio"))
+            if media.get("nodeCount") != 3:
+                problems.append(f"inline producers: {media}")
+            if (video.get("width"), video.get("height")) != (160, 90) or not video.get("played"):
+                problems.append(f"inline video did not decode/play: {video}")
+            if video.get("autoplay") or not video.get("pausedInitially") or media.get("playerOpenedDialog"):
+                problems.append(f"inline video playback controls leaked: {media}")
+            if (mesh.get("width"), mesh.get("height")) != (320, 200) or not mesh.get("interactiveViewer") or mesh.get("painted", 0) < 100:
+                problems.append(f"inline mesh thumbnail or interactive viewer missing: {mesh}")
+            if not audio.get("controls") or audio.get("duration", 0) <= 0:
+                problems.append(f"inline audio missing: {audio}")
         if s == "timings":
             problems += check_timings(d.get("timings"))
         if s == "logic":

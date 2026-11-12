@@ -368,6 +368,30 @@ def reset(scenario: str) -> dict:
             node["params"][E.picks.PARAM] = {node["params"]["path"]: E.picks.mint(env, flow["id"], node["id"], node["params"]["path"])}
         flow = E.store.save_flow(env, flow, create=True)
         return {"flow_id": flow["id"], "select": refs["m3d"], "run_id": None}
+    if scenario == "inline_media":
+        # Real local fixture bytes, not a provider call: every File node should show its own result.
+        with open(os.path.join(ROOT, "tests", "fixtures", "inline-player.webm"), "rb") as fh:
+            video = _fake_file("inline-player.webm", fh.read())
+        mesh = _fake_file("inline-cube.glb", _glb_cube())
+        audio = _fake_file("inline-tone.wav", b"")
+        _wav(audio)
+        flow = E.graph.new_flow("Inline media", "Local video, GLB and audio without Preview nodes")
+        flow, _ = E.graph.apply_ops(flow, [
+            {"op": "add_node", "ref": "clip", "type": "input.file", "title": "Video producer",
+             "params": {"path": video, "kind": "video"}, "x": 80, "y": 80},
+            {"op": "add_node", "ref": "mesh", "type": "input.file", "title": "Mesh producer",
+             "params": {"path": mesh, "kind": "model3d"}, "x": 420, "y": 80},
+            {"op": "add_node", "ref": "audio", "type": "input.file", "title": "Audio producer",
+             "params": {"path": audio, "kind": "audio"}, "x": 760, "y": 80},
+        ], types)
+        for node in flow["nodes"]:
+            path = node["params"]["path"]
+            node["params"][E.picks.PARAM] = {path: E.picks.mint(env, flow["id"], node["id"], path)}
+        flow = E.store.save_flow(env, flow, create=True)
+        handle = E.runner.start_run(env, flow["id"])
+        if not handle.done.wait(15):
+            raise RuntimeError("inline media fixture run did not finish")
+        return {"flow_id": flow["id"], "run_id": handle.run["id"]}
     if scenario == "model_settings":
         flow = E.graph.new_flow("Model settings", "G7: choices and cost follow the chosen model")
         flow, results = E.graph.apply_ops(flow, [
