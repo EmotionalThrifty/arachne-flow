@@ -913,6 +913,9 @@ def _upload(env, body) -> dict:
 def _flow_action(env, method, flow_id, action, query, body):
     if action == "file" and method == "GET":
         return _file_node_preview(env, flow_id, query)
+    if action == "triggers" and method == "GET":
+        from . import triggers as TR
+        return TR.status(env, S.get_flow(env, flow_id), env.state.get("trigger_scheduler"))
     if method != "POST":
         raise HTTPException(405, "method not allowed")
     if action == "duplicate":
@@ -976,6 +979,36 @@ def _flow_action(env, method, flow_id, action, query, body):
         _emit_changed(env, flow, _origin(body, query))
         node = next((n for n in flow["nodes"] if n.get("id") == node_id), None)
         return {"flow": flow, "node": node}
+    if action == "trigger":
+        # Switch one trigger node on/off. A webhook gets its random URL part on first activation.
+        from . import triggers as TR
+        node_id = body.get("node_id")
+        enable = body.get("active") is True
+
+        def mutate(flow):
+            node = next((n for n in flow.get("nodes") or [] if isinstance(n, dict) and n.get("id") == node_id), None)
+            if node is None or not TR.is_trigger(node):
+                raise ValueError("node_id must name a trigger node in this flow")
+            params = node.setdefault("params", {})
+            if enable:
+                problems = [m for level, m in TR.validate_issues(node) if level == "error"]
+                if problems:
+                    raise ValueError(problems[0])
+                if node.get("type") == TR.WEBHOOK and not params.get("hook_id"):
+                    params["hook_id"] = TR.new_hook_id()
+            if body.get("rotate") is True and node.get("type") == TR.WEBHOOK:
+                params["hook_id"] = TR.new_hook_id()
+            params["active"] = enable
+            return None
+        flow = S.modify_flow(env, flow_id, mutate, base_revision=body.get("base_revision"))
+        _emit_changed(env, flow, _origin(body, query))
+        sched = env.state.get("trigger_scheduler")
+        if sched is not None and getattr(sched, "leader", None) and sched.leader.handle is not None:
+            try:
+                sched.tick(env)         # this process fires: apply at once (webhook listener, first RSS poll)
+            except Exception as exc:  # noqa: BLE001 - status shows the error
+                logger.info("arachne-flow: trigger tick after switch failed: %s", exc)
+        return {"flow": flow, "status": TR.status(env, flow, sched)}
     if action == "layout":
         types = N.types_by_name(env)
         flow = S.modify_flow(env, flow_id, lambda f: L.auto_layout(f, types), base_revision=body.get("base_revision"))

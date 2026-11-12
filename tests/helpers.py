@@ -9,6 +9,8 @@ import tempfile
 import time
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+# Tests never fire triggers in the background; they call Scheduler.tick() directly.
+os.environ.setdefault("ARACHNE_FLOW_TRIGGERS", "0")
 
 
 def load_module(rel_path: str, name: str):

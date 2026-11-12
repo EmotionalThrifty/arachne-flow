@@ -247,7 +247,7 @@ class ToolNodeTest(unittest.TestCase):
 class ListingTest(unittest.TestCase):
     def test_order_builtins_then_tools_then_mcp(self):
         cats = N.categories(N.list_node_types(env_with()))
-        self.assertEqual(cats[:2], ["Inputs", "AI"])
+        self.assertEqual(cats[:3], ["Triggers", "Inputs", "AI"])   # triggers start a flow, so they lead
         self.assertLess(cats.index("Tools · web"), cats.index("MCP · nanogpt"))
         self.assertEqual(cats[-1], "MCP · nanogpt")
 

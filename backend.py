@@ -110,6 +110,26 @@ async def route(method: str, path: str, query: dict, body: dict):
     return await eng.api.handle(method, path, query, body, env())
 
 
+def start_triggers() -> None:
+    """Start this process's trigger loop once (idle unless this is the gateway or the Desktop backend, and only
+    the process holding the trigger lock fires). Safe to call repeatedly."""
+    rt = _runtime()
+    state = rt.STATE.setdefault("engine_state", {})
+    sched = state.get("trigger_scheduler")
+    if sched is None:
+        eng = engine()
+        sched = eng.triggers.Scheduler(env, eligible_fn=lambda: eng.triggers.eligible(
+            dashboard=bool(rt.STATE.get("dashboard"))))
+        state["trigger_scheduler"] = sched
+    sched.start()
+
+
+def stop_triggers() -> None:
+    sched = _runtime().STATE.setdefault("engine_state", {}).pop("trigger_scheduler", None)
+    if sched is not None:
+        sched.shutdown()
+
+
 def tool_call(name: str, args: dict, kwargs: dict) -> str:
     """Agent tool entry point (sync; Hermes runs tool handlers off the event loop)."""
     eng = engine()

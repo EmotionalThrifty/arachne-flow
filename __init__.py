@@ -59,4 +59,11 @@ def register(ctx) -> None:
     ctx.register_command("flow", _agent_command, description="List, run, open and inspect flows in Arachne Flow",
                          args_hint="list | run <name> [--fresh] | open [name] | status <run_id>")
     _register_skill(ctx)
+    try:
+        _backend().start_triggers()
+        on_unload = getattr(ctx, "on_unload", None)
+        if callable(on_unload):
+            on_unload(lambda: _backend().stop_triggers())
+    except Exception:  # noqa: BLE001 - triggers must never keep the plugin from loading
+        logger.exception("arachne-flow: trigger loop not started")
     logger.info("arachne-flow: registered (ctx bound)")

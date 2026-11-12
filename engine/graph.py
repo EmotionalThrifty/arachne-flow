@@ -425,6 +425,10 @@ def validate(flow: dict, types_by_name: dict) -> list:
             if ((n["id"], "message") not in fed and (n["id"], "attachment") not in fed
                     and (not isinstance(message, str) or not message.strip())):
                 issues.append(_issue("error", "connect a message or attachment before running", node=n["id"]))
+        if str(n.get("type") or "").startswith("trigger."):
+            from . import triggers as T   # lazy: triggers imports store, which imports graph
+            for level, message in T.validate_issues(n):
+                issues.append(_issue(level, message, node=n["id"]))
         for p in ports[n["id"]][0]:
             if not p.get("required") or (n["id"], p["name"]) in fed:
                 continue
@@ -432,6 +436,46 @@ def validate(flow: dict, types_by_name: dict) -> list:
                 continue                              # a constant in params satisfies the input
             issues.append(_issue("error", f"required input {p.get('label') or p['name']!r} is not connected",
                                  node=n["id"], port=p["name"]))
+    issues.extend(_trigger_join_issues(flow))
+    return issues
+
+
+def _trigger_join_issues(flow: dict) -> list:
+    """Only one trigger fires per run, so a step that needs wires from two triggers (not joined by a Merge) is
+    always skipped: warn about it."""
+    nodes = {n.get("id"): n for n in flow.get("nodes", []) if isinstance(n, dict)}
+    parents = {}
+    for e in flow.get("edges", []):
+        try:
+            parents.setdefault(e["to"]["node"], set()).add(e["from"]["node"])
+        except (KeyError, TypeError):
+            continue
+    memo = {}
+
+    def triggers_of(nid, seen=()):
+        if nid in memo:
+            return memo[nid]
+        node = nodes.get(nid) or {}
+        if str(node.get("type") or "").startswith("trigger."):
+            out = {nid}
+        elif node.get("type") == "logic.merge" or nid in seen:
+            out = set()            # a Merge joins them: whichever fired passes
+        else:
+            out = set()
+            for p in parents.get(nid, ()):
+                out |= triggers_of(p, seen + (nid,))
+        memo[nid] = out
+        return out
+
+    issues = []
+    for nid, node in nodes.items():
+        if node.get("type") == "logic.merge" or str(node.get("type") or "").startswith("trigger."):
+            continue
+        found = sorted(triggers_of(nid))
+        if len(found) > 1:
+            names = ", ".join(sorted(str((nodes.get(t) or {}).get("title") or t) for t in found))
+            issues.append(_issue("warning", f"fed by several triggers ({names}); only one fires per run, so this "
+                                            "step is always skipped. Join them with a Merge first.", node=nid))
     return issues
 
 

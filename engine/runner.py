@@ -1006,6 +1006,8 @@ class _Execution:
         _, outs = G.node_ports(self.nodes[src], self.types)
         label = {p["name"]: p.get("label") or p["name"] for p in outs or []}
         title = self.nodes[src].get("title") or (self.types.get(self.nodes[src].get("type")) or {}).get("title") or src
+        if st.get("branch") == "idle" and str(self.nodes[src].get("type") or "").startswith("trigger."):
+            return f"{title} did not start this run (another trigger did)"
         return f"{title} took “{label.get(st.get('branch'), st.get('branch'))}”, not “{label.get(port, port)}”"
 
     def merge_value(self, nid: str, scope=None):
@@ -1364,11 +1366,13 @@ def _thread_main(env, flow, types, handle: RunHandle):
 # ----------------------------------------------------------------- public API
 
 def start_run(env, flow_id: str, target_node: str = None, fresh: bool = False, inputs: dict = None,
-              flow: dict = None) -> RunHandle:
+              flow: dict = None, meta: dict = None) -> RunHandle:
     """Validate and launch a run in the background. Invalid runs are saved and returned finished."""
     ensure_startup(env)
     flow = flow if flow is not None else S.get_flow(env, flow_id)
     run, effective, types = prepare(env, flow, target_node=target_node, fresh=fresh, inputs=inputs)
+    if meta:
+        run.update(meta)   # e.g. {"trigger": {...}}: which trigger started this run
     handle = RunHandle(run=run)
     if run["status"] == "invalid":
         S.save_run(env, run)

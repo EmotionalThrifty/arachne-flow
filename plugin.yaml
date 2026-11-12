@@ -49,6 +49,11 @@ config_schema:
     label: Max items per For each
     description: Upper limit of list items one For each runs (a node's own Limit can only lower it).
     default: 100
+  webhook_port:
+    type: int
+    label: Webhook port
+    description: Local port (127.0.0.1 only) on which Webhook trigger nodes listen while one is active.
+    default: 8649
   node_timeout_s:
     type: int
     label: Node timeout (seconds)

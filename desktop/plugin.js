@@ -591,7 +591,7 @@ async function draftToComposer(hostApi, sid, text) {
   return null
 }
 
-/** Why a flow that was just persisted must not run or be scheduled: a save conflict, or the save failed. */
+/** Why a flow that was just persisted must not run: a save conflict, or the save failed. */
 function saveBlocker(conflict, flow, loaded) {
   if (conflict) return 'Resolve the save conflict first.'
   if (flow !== loaded) return 'The flow could not be saved, so it cannot run yet.'
@@ -626,43 +626,6 @@ function recoveryPlan(flow, loaded) {
   if (!flow) return 'boot'
   return flow === loaded ? 'reload' : 'save'
 }
-
-/** Flows > Schedule with Hermes…: the prompt for the chat agent. It creates a real Hermes cron job (the agent
- *  owns cronjob_manage), so runs follow Hermes' scheduler; each tick is a small agent turn that calls flow_run.
- *  File inputs are deliberately left out: a local path pasted into a scheduled job belongs to this machine only. */
-function schedulePrompt(flow, opts = {}) {
-  const when = String(opts.schedule || '').trim()
-  const args = []
-  const seenTitles = {}
-  for (const n of flow.nodes || []) {
-    if (n.type !== 'input.text' && n.type !== 'input.number' && n.type !== 'input.json') continue
-    const title = String(n.title || '').trim()
-    if (title) seenTitles[title] = (seenTitles[title] || 0) + 1
-  }
-  for (const n of flow.nodes || []) {
-    if (n.type !== 'input.text' && n.type !== 'input.number' && n.type !== 'input.json') continue
-    const value = (n.params || {}).value
-    if (value === null || value === undefined || value === '') continue
-    const title = String(n.title || '').trim()
-    const used = !title || (seenTitles[title] || 0) > 1 ? n.id : title  // shared titles are ambiguous -> node id
-    args.push(`${JSON.stringify(used)}: ${JSON.stringify(value)}`)
-  }
-  const call = `flow_run(flow=${JSON.stringify(flow.id)}${opts.fresh ? ', fresh=true' : ''}${args.length ? `, inputs={${args.join(', ')}}` : ''})`
-  const hasFiles = (flow.nodes || []).some((n) => n.type === 'input.file')
-  const name = JSON.stringify(oneLine(flow.name || 'Untitled flow', 80))  // quotes/newlines cannot break the request
-  return [
-    `Create a ${/^in /i.test(when) ? 'one-shot' : 'recurring'} cron job with cronjob_manage (action: 'create') for my flow ${name} (id ${flow.id}) in Arachne Flow.`,
-    `Use name ${name}, schedule: ${JSON.stringify(when)}, and this prompt (self-contained, no chat context):`,
-    `"In Arachne Flow, run flow ${flow.id} with ${call} and afterwards report only failures; on success keep it to one short line."`,
-    'Do not edit the flow. Create the job, then tell me its job id and when it will next run.',
-    'The flow is unchanged after that: the job runs it as it is saved at that time.',
-    hasFiles ? 'Note: its file input needs a value at run time; keep any local file path on this machine.' : ''
-  ].filter(Boolean).join('\n')
-}
-function scheduleError(when) {
-  return String(when || '').trim() ? '' : 'Enter when to run it, e.g. "every weekday at 8am" or "in 30m".'
-}
-const scheduleDraft = (when, opts) => ({ schedule: String(when || '').trim(), ...(opts || {}) })
 
 // node.status event fields copied into the node state; a new start clears what the last run left behind
 const STATUS_FIELDS = ['ms', 'error', 'preview', 'started_at', 'branch', 'skip', 'reason', 'items', 'count', 'note', 'progress']
@@ -1661,7 +1624,7 @@ function categoryColor(category = '') {
   if (category.startsWith('MCP')) return 'var(--ui-orange)'
   if (category.startsWith('Tools')) return 'var(--ui-blue)'
   const map = {
-    Inputs: 'var(--ui-cyan)', AI: 'var(--ui-purple)', Text: 'var(--ui-green)', Data: 'var(--ui-yellow)',
+    Triggers: 'var(--ui-green)', Inputs: 'var(--ui-cyan)', AI: 'var(--ui-purple)', Text: 'var(--ui-green)', Data: 'var(--ui-yellow)',
     Media: 'var(--ui-red)', Web: 'var(--ui-blue)', Output: 'var(--ui-accent)', Presets: 'var(--ui-warm)',
     Logic: 'color-mix(in srgb, var(--ui-purple) 55%, var(--ui-red))',
     Utility: 'var(--ui-text-tertiary)'
@@ -2133,6 +2096,9 @@ function makeApi(ctx) {
     layout: (id, base) => call('POST', `flows/${encodeURIComponent(id)}/layout`, { base_revision: base, origin: 'ui' }),
     messagingOptIn: (id, nodeId, enable, base, allowAttachments = false) => call('POST', `flows/${encodeURIComponent(id)}/messaging-optin`,
       { node_id: nodeId, enable: !!enable, allow_attachments: allowAttachments === true, base_revision: base, origin: 'ui' }),
+    triggerStatus: (id) => call('GET', `flows/${encodeURIComponent(id)}/triggers`),
+    triggerSwitch: (id, nodeId, active, base, rotate = false) => call('POST', `flows/${encodeURIComponent(id)}/trigger`,
+      { node_id: nodeId, active: !!active, rotate: rotate === true, base_revision: base, origin: 'ui' }),
     validate: (flowId) => call('POST', 'validate', { flow_id: flowId }),
     generate: (body) => call('POST', 'generate', body, 420000),
     generateStart: (body) => call('POST', 'generate/jobs', body),
@@ -3347,7 +3313,7 @@ function ContextMenu({ menu, items, onClose }) {
 
 // ---------------------------------------------------------------- header + flow menu
 function FlowMenu({ flows, current, templates, onOpen, onNew, onFromTemplate, onDuplicate, onDelete, onClose,
-  onSaveTemplate, onEditTemplate, onDeleteTemplate, onSchedule, returnFocus }) {
+  onSaveTemplate, onEditTemplate, onDeleteTemplate, returnFocus }) {
   const ref = useRef(null)
   const [confirmDelete, setConfirmDelete] = useState(false)
   const [confirmTemplate, setConfirmTemplate] = useState(null)
@@ -3412,8 +3378,6 @@ function FlowMenu({ flows, current, templates, onOpen, onNew, onFromTemplate, on
     current ? h('div', { className: 'fc-menu-sep' }) : null,
     current && onSaveTemplate ? h('div', { className: 'fc-menu-item', role: 'menuitem', tabIndex: -1, 'data-fc-save-template': '1', onClick: onSaveTemplate },
       h(Icon, { name: 'save-as' }), h('span', { className: 'fc-menu-name' }, 'Save as template…')) : null,
-    current && onSchedule ? h('div', { className: 'fc-menu-item', role: 'menuitem', tabIndex: -1, 'data-fc-schedule': '1', onClick: onSchedule },
-      h(Icon, { name: 'clock' }), h('span', { className: 'fc-menu-name' }, 'Schedule with Hermes…')) : null,
     current ? h('div', { className: 'fc-menu-item', role: 'menuitem', tabIndex: -1, onClick: onDuplicate },
       h(Icon, { name: 'copy' }), h('span', { className: 'fc-menu-name' }, 'Duplicate this flow')) : null,
     current ? h('div', { className: 'fc-menu-item danger', role: 'menuitem', tabIndex: -1, onClick: () => (confirmDelete ? onDelete() : setConfirmDelete(true)) },
@@ -3460,7 +3424,7 @@ function Header(p) {
         flows: p.flows, current: f, templates: p.templates, onOpen: p.onOpen, onNew: p.onNew,
         onFromTemplate: p.onFromTemplate, onDuplicate: p.onDuplicate, onDelete: p.onDelete, onClose: p.closeMenu,
         onSaveTemplate: p.onSaveTemplate, onEditTemplate: p.onEditTemplate, onDeleteTemplate: p.onDeleteTemplate,
-        onSchedule: p.onSchedule, returnFocus: () => focusEl(flowsBtn.current)
+        returnFocus: () => focusEl(flowsBtn.current)
       }) : null),
     f ? h(NameInput, { value: f.name || 'Untitled flow', onCommit: p.onRename }) : h('span', { className: 'fc-header-title' }, 'Arachne Flow'),
     f ? h(SaveIndicator, { state: p.saveState, error: p.saveError }) : null,
@@ -6393,6 +6357,90 @@ function MessagingGuard({ node, onOptIn, busy }) {
       h('div', { className: 'fc-help' }, 'Connect media to Attachment. A timeout cannot prove delivery; check the recipient before retrying.')))
 }
 
+const isTriggerType = (type) => typeof type === 'string' && type.startsWith('trigger.')
+/** "in 5 min" / "Tue 08:00" for a trigger's next or last fire (epoch seconds). Pure, tested. */
+function triggerWhen(epoch, now = Date.now()) {
+  if (!epoch) return ''
+  const ms = epoch * 1000
+  const diff = ms - now
+  if (Math.abs(diff) < 45000) return diff >= 0 ? 'now' : 'just now'
+  if (diff > 0 && diff < 3600000) return `in ${Math.round(diff / 60000)} min`
+  if (diff < 0 && -diff < 3600000) return `${Math.round(-diff / 60000)} min ago`
+  const d = new Date(ms)
+  const sameDay = new Date(now).toDateString() === d.toDateString()
+  const hm = `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`
+  return sameDay ? `today ${hm}` : `${d.toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short' })} ${hm}`
+}
+/** The lines the trigger section shows, from GET flows/<id>/triggers. Pure, tested. */
+function triggerLines(node, info, runnerPid, now = Date.now()) {
+  if (!info) return ['Loading status…']
+  const lines = []
+  if (!info.active) {
+    lines.push(node.type === 'trigger.webhook'
+      ? 'Off. Activate it to get a local URL that starts this flow.'
+      : 'Off. Activate it to start this flow automatically while Hermes runs.')
+    return lines
+  }
+  if (!runnerPid) lines.push('Waiting for Hermes to pick it up (the gateway or Desktop backend fires triggers, within about a minute).')
+  if (info.schedule) lines.push(`Schedule: ${info.schedule}`)
+  if (info.next) lines.push(`Next: ${triggerWhen(info.next, now)}`)
+  else if (node.type === 'trigger.webhook') lines.push('Runs on every POST to its URL.')
+  if (info.last_fire) lines.push(`Last start: ${triggerWhen(info.last_fire, now)} · ${info.fires || 1} run${info.fires === 1 ? '' : 's'} so far`)
+  if (info.last_event_at) lines.push(`Last request: ${info.last_event_at.replace('T', ' ').slice(0, 16)}`)
+  if (info.note) lines.push(info.note)
+  return lines
+}
+
+/** Trigger nodes: switch on/off, see when it fires next, copy the webhook URL. */
+function TriggerGuard({ node, flow, api, busy, onSwitch }) {
+  const [status, setStatus] = useState(null)
+  const [error, setError] = useState('')
+  const [tick, setTick] = useState(0)
+  const flowId = flow && flow.id
+  const params = node.params || {}
+  useEffect(() => {
+    let alive = true
+    if (!api || !flowId || typeof api.triggerStatus !== 'function') return undefined
+    api.triggerStatus(flowId).then((s) => alive && (setStatus(s), setError('')),
+      (err) => alive && setError(parseRestError(err).message))
+    const timer = setTimeout(() => alive && setTick((n) => n + 1), 15000)
+    return () => { alive = false; clearTimeout(timer) }
+  }, [flowId, node.id, params.active, params.schedule, params.url, params.hook_id, tick])
+  const info = status && status.nodes ? status.nodes[node.id] : null
+  const active = info ? info.active : params.active === true
+  const lines = triggerLines(node, info || (status ? { active: params.active === true } : null), status && status.runner_pid)
+  const problem = error || (info && info.error) || (status && node.type === 'trigger.webhook' && active && status.server_error) || ''
+  const toggle = async (next, rotate = false) => {
+    const res = await onSwitch(node.id, next, rotate)
+    if (res && res.status) setStatus(res.status)
+  }
+  return h('div', { className: 'fc-section', 'data-fc-trigger': active ? 'on' : 'off' },
+    h('h4', null, 'Trigger'),
+    h('div', { className: 'fc-field' },
+      h('div', { className: 'fc-help', style: active ? { color: 'var(--ui-green)' } : undefined,
+        'data-fc-trigger-state': active ? 'on' : 'off' }, lines.map((l, i) => h('div', { key: i }, l))),
+      problem ? h('div', { className: 'fc-node-error', style: { margin: '6px 0 0' }, 'data-fc-trigger-error': '1' }, problem) : null,
+      info && info.url ? h('div', { className: 'fc-field', style: { marginTop: 8 } },
+        h('label', null, 'Webhook URL', h(InfoTip, { lines: ['POST JSON or text here to start the flow; Body and Raw text carry it.',
+          'Only reachable from this computer (127.0.0.1). For outside services use a tunnel you trust.',
+          'The URL contains a secret: anyone with it can start the flow. New URL makes the old one stop working.'] })),
+        h('div', { className: 'fc-row' },
+          h('input', { className: 'fc-input', readOnly: true, value: info.url, 'data-fc-webhook-url': '1', onFocus: (e) => e.target.select() }),
+          h('button', { type: 'button', className: 'fc-btn', title: 'Copy the URL',
+            onClick: async () => { if (typeof sdk.writeClipboardText === 'function') await sdk.writeClipboardText(info.url) } },
+          h(Icon, { name: 'copy' })))) : null,
+      h('div', { className: 'fc-row', style: { marginTop: 8 } },
+        h('button', {
+          className: active ? 'fc-btn' : 'fc-btn primary', disabled: !!busy, 'data-fc-trigger-toggle': active ? 'off' : 'on',
+          title: active ? 'Stop starting this flow automatically' : 'Start this flow automatically while Hermes runs',
+          onClick: () => toggle(!active)
+        }, h(Icon, { name: active ? 'debug-pause' : 'play' }), active ? 'Deactivate' : 'Activate'),
+        active && node.type === 'trigger.webhook' ? h('button', { className: 'fc-btn', disabled: !!busy,
+          title: 'Make a new secret URL; the old one stops working', onClick: () => toggle(true, true) }, 'New URL') : null),
+      h('div', { className: 'fc-help' }, 'Triggers start the flow directly: no chat turn, so no extra model cost beyond the flow\'s own nodes. ' +
+        'They run only while Hermes (gateway or Desktop) is running; a schedule missed by more than 30 min is skipped.')))
+}
+
 function NodePanel(p) {
   const { node, spec, flow, types, run, api } = p
   const state = run && run.nodes ? run.nodes[node.id] : null
@@ -6470,6 +6518,9 @@ function NodePanel(p) {
       spec && spec.description ? h('div', { className: 'fc-help' }, spec.description) : null,
       nodeIssues.length ? h('div', { className: 'fc-insp-issues' }, nodeIssues.map((i, k) => h('div', { key: k, className: `fc-issue ${i.level}` },
         h(Icon, { name: i.level === 'error' ? 'error' : 'warning' }), h('span', null, i.message)))) : null),
+    isTriggerType(node.type) ? h(TriggerGuard, {
+      node, flow, api, busy: !!p.running, onSwitch: (id, active, rotate) => p.onTriggerSwitch && p.onTriggerSwitch(id, active, rotate)
+    }) : null,
     node.type === 'output.send_message' ? h(MessagingGuard, {
       node, busy: !!p.running, onOptIn: (id, enable, allowAttachments) => p.onMessagingOptIn && p.onMessagingOptIn(id, enable, allowAttachments)
     }) : null,
@@ -7070,48 +7121,6 @@ function TemplateDialog({ mode, initial, inputs, busy, onSubmit, onCancel }) {
         busy ? h(Icon, { name: 'loading', spin: true }) : null, saving ? 'Save template' : 'Save'))))
 }
 
-/** Flows > Schedule with Hermes… — collects the when + cache choice, hands the cron request to the chat agent. */
-function ScheduleDialog({ flow, onSubmit, onCancel }) {
-  const [when, setWhen] = useState('every weekday at 8am')
-  const [fresh, setFresh] = useState(false)
-  const [busy, setBusy] = useState(false)
-  const error = scheduleError(when)
-  const submit = async (e) => {
-    if (e) e.preventDefault()
-    if (error || busy) return
-    setBusy(true)
-    await onSubmit({ schedule: when.trim(), fresh })
-    setBusy(false)
-  }
-  return h(DialogFrame, {
-    label: 'Schedule with Hermes',
-    onCancel,
-    onKeyDown: (e) => {
-      if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) submit(e)
-    }
-  },
-  h('form', { className: 'fc-modal', onSubmit: submit },
-    h('div', { className: 'fc-modal-title' }, h(Icon, { name: 'clock' }), 'Schedule with Hermes'),
-    h('p', { className: 'fc-help' },
-      'Hermes creates a cron job that runs this flow. Each run is one short agent turn calling flow_run (that is the '
-      + 'cost, plus whatever the flow itself costs). It runs while Hermes is running, and the flow stays editable: '
-      + 'the job always uses the saved version. This hands the request to your chat composer — you send it.'),
-    h('div', { className: 'fc-field' },
-      h('label', { htmlFor: 'fc-schedule-when' }, 'When'),
-      h('input', {
-        id: 'fc-schedule-when', className: 'fc-input', value: when, autoFocus: true, 'data-fc-schedule-when': '1',
-        placeholder: 'every weekday at 8am · in 30m · 0 9 * * *', onChange: (e) => setWhen(e.target.value)
-      })),
-    h('label', { className: 'fc-check' },
-      h('input', { type: 'checkbox', checked: fresh, 'data-fc-schedule-fresh': '1', onChange: (e) => setFresh(e.target.checked) }),
-      'Fresh run every time (ignore the cache)'),
-    error ? h('p', { className: 'fc-help', 'data-fc-schedule-error': '1' }, error) : null,
-    h('div', { className: 'fc-modal-actions' },
-      h('button', { type: 'button', className: 'fc-btn', onClick: onCancel }, 'Cancel'),
-      h('button', { type: 'submit', className: 'fc-btn primary', disabled: !!error || busy, 'data-fc-schedule-submit': '1' },
-        busy ? h(Icon, { name: 'loading', spin: true }) : null, 'Prepare in chat'))))
-}
-
 function Welcome({ templates, hasFlows, onNew, onFromTemplate, onOpenMenu, generation, onGenerate, onGenerateEdit, onGenerateStop }) {
   return h('div', { className: 'fc-welcome' },
     h('div', { className: 'fc-welcome-icon' }, h(Icon, { name: 'type-hierarchy' })),
@@ -7185,7 +7194,6 @@ function ArachneFlowPage({ ctx }) {
   const [expanded, setExpanded] = useState(() => new Set())
   const [menuOpen, setMenuOpen] = useState(false)
   const [templateDialog, setTemplateDialog] = useState(null)
-  const [scheduleOpen, setScheduleOpen] = useState(false) // { mode: 'save' } | { mode: 'edit', template }
   const [templateBusy, setTemplateBusy] = useState(false)
   const [generation, dispatchGeneration] = useReducer(generateReducer, undefined, generateInitial)
   const [logOpen, setLogOpen] = useState(() => sget('logOpen', true) !== false)
@@ -7590,6 +7598,30 @@ function ArachneFlowPage({ ctx }) {
       }
     })
   }
+  const triggerSwitch = async (nodeId, active, rotate = false) => {
+    const current = flowRef.current
+    if (!current) return null
+    await latest.current.persist()           // a trigger fires what is saved: save the canvas first
+    if (conflictRef.current || flowRef.current !== loadedRef.current) {
+      notify(saveBlocker(conflictRef.current, flowRef.current, loadedRef.current) || 'Save the flow first.', 'warn')
+      return null
+    }
+    let out = null
+    await chainWork(async () => {
+      try {
+        const res = await api.triggerSwitch(current.id, nodeId, active, baseRevRef.current, rotate)
+        loadedRef.current = res.flow
+        baseRevRef.current = res.flow.revision
+        setDoc((d) => applyEdit(d, res.flow))
+        notify(rotate ? 'New webhook URL. The old one no longer works.'
+          : active ? 'Trigger active: it starts this flow by itself while Hermes runs.' : 'Trigger off.', active ? 'ok' : 'info', 4500)
+        out = res
+      } catch (err) {
+        notify(parseRestError(err).message, 'error')
+      }
+    })
+    return out
+  }
   const stopGeneration = async () => {
     const id = generationJobRef.current
     if (!id) return
@@ -7709,32 +7741,6 @@ function ArachneFlowPage({ ctx }) {
     setConflict(null)
     loadedRef.current = null
     latest.current.persist()
-  }
-  const scheduleFlow = async (opts) => {
-    const f = flowRef.current
-    if (!f) return
-    await latest.current.persist()          // the cron job must run what you see
-    const blocked = saveBlocker(conflictRef.current, flowRef.current, loadedRef.current)
-    if (blocked) {
-      notify(blocked, conflictRef.current ? 'warn' : 'error')
-      return
-    }
-    const text = schedulePrompt(f, opts)
-    const focused = host.state && host.state.focusedSessionId
-    const sid = focused && typeof focused.get === 'function' ? focused.get() : null
-    setScheduleOpen(false)
-    try {
-      if (await draftToComposer(host, sid, text)) {
-        notify('The cron request is in your chat composer — send it and Hermes creates the job.', 'ok', 6000)
-        return
-      }
-      if (typeof sdk.writeClipboardText === 'function') {
-        await sdk.writeClipboardText(text)
-        notify('No chat composer is open, so the cron request was copied — paste it in a chat.', 'warn', 6500)
-      } else notify('Open a chat first, then choose Schedule with Hermes again.', 'warn')
-    } catch (err) {
-      notify(parseRestError(err).message, 'error')
-    }
   }
   const askHermes = async () => {
     const text = askPrompt(flowRef.current)
@@ -8340,6 +8346,7 @@ function ArachneFlowPage({ ctx }) {
         },
         onUpdateFlow: (patch, key) => edit((f) => ({ ...f, ...patch }), key),
         onMessagingOptIn: messagingOptIn,
+        onTriggerSwitch: triggerSwitch,
         onRunTo: (id) => startRun({ target: id }),
         onOpenMedia: openMedia,
         onDelete: deleteSelection,
@@ -8377,10 +8384,6 @@ function ArachneFlowPage({ ctx }) {
         setTemplateDialog({ mode: 'edit', template: t })
       },
       onDeleteTemplate: removeTemplate,
-      onSchedule: () => {
-        setMenuOpen(false)
-        if (flowRef.current) setScheduleOpen(true)
-      },
       onRename: (name) => edit((f) => ({ ...f, name })),
       onRun: (opts) => startRun(opts),
       onStop: stopRun,
@@ -8451,7 +8454,6 @@ function ArachneFlowPage({ ctx }) {
         focusRoot()
       }
     }) : null,
-    scheduleOpen && flow ? h(ScheduleDialog, { flow, onSubmit: scheduleFlow, onCancel: () => setScheduleOpen(false) }) : null,
     valueViewer && flow && run && valueViewer.flowId === flow.id && valueViewer.runId === run.id && flow.nodes && flow.nodes.find((n) => n.id === valueViewer.nodeId) ? h(ValueViewer, {
       api,
       run,
@@ -8506,7 +8508,7 @@ const cacheSizes = () => ({
   toolOptions: optionsCache.size
 })
 const _internals = {
-  MiniMedia, ModelThumbnail, createModelThumbnailCache,
+  MiniMedia, ModelThumbnail, createModelThumbnailCache, triggerWhen, triggerLines, TriggerGuard, isTriggerType,
   runGenerationJob, generationJobError, generationStatus, GENERATE_POLL_MS,
   NODE_W, HEAD_H, PORTS_TOP, ROW_H, GRID, MIN_ZOOM, MAX_ZOOM, COLLAPSE_AFTER, VISIBLE_OPTIONAL, UNDO_LIMIT, POLL_MS,
   // U-4: pure helpers used by the canvas render path (tested in tests/js/perf.test.mjs)
@@ -8527,7 +8529,7 @@ const _internals = {
   toolOptionLabel, extraVisible, extraValues, extraSpec, llmPickerInfo, llmInfoRows, estimateLlmCost,
   cacheOn, cachePatch, formatClock, typicalShort, timingModel, indexTimings, expectedTime, timingLines, typeTiming, statusTip, runTip, portTip,
   errorTip, tipText, HEADER_TIPS, switchCases, branchPort, edgeDead, branchLabel, MAX_CASES,
-  loopBodies, itemsFinished, itemsLine, badgeLabel, itemRows, schedulePrompt, scheduleError, scheduleDraft,
+  loopBodies, itemsFinished, itemsLine, badgeLabel, itemRows,
   applyNodeStatus, setMediaItem, valuePorts, ValueViewer, formatJsonText, JsonInputEditor, SafeMarkdown, MarkdownEditor,
   fitImageLimit, wiredItemCount, parseGlb, readAccessor, collectModel, fitOrbit, orbitEye, orbitMatrix, computeNormals, uploadModelTexture, createModelRenderer, bindLightboxPan,
   // lifecycle (U-12): the byte-capped media cache rule, the caches themselves and the dispose hook

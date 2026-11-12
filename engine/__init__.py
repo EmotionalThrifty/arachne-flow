@@ -5,4 +5,4 @@ Modules import each other relatively. Keep NO long-lived state in module globals
 """
 from .version import VERSION  # noqa: F401
 from . import types, graph, layout, store, nodes, media, executors, options, presets, timings, runner, generate  # noqa: F401,E402,E501
-from . import env, api, tool_schemas, tools  # noqa: F401,E402
+from . import env, api, tool_schemas, tools, triggers  # noqa: F401,E402

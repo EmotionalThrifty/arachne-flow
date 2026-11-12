@@ -757,6 +757,14 @@ BUILTIN = {
 BUILTIN.update({name: D.execute for name in D.TYPES})
 
 
+async def _trigger(env, node, spec, inputs, nctx):
+    from . import triggers as T
+    return await T.execute(env, node, spec, inputs, nctx)
+
+
+BUILTIN.update({name: _trigger for name in ("trigger.schedule", "trigger.rss", "trigger.webhook")})
+
+
 async def execute(env, node: dict, spec: dict, inputs: dict, nctx: NodeContext) -> dict:
     """Run one node. Raises NodeError for user-facing failures."""
     if spec is None:

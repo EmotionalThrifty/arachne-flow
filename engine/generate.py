@@ -164,11 +164,10 @@ def _skill_rules() -> str:
             "results before leaving the loop. Include a useful final output. Never execute or expose secrets.\n\n"
         )
         body = text[start:end]
-        for skip in ("## Scheduling a flow",):
-            if skip in body:
-                cut = body.index(skip)
-                nxt = body.find("\n## ", cut + 3)
-                body = body[:cut] + (body[nxt + 1:] if nxt >= 0 else "")
+        if "## Triggers" in text:          # trigger nodes are part of the graph contract too
+            t0 = text.index("## Triggers")
+            t1 = text.find("\n## ", t0 + 3)
+            body = text[t0:t1 if t1 >= 0 else len(text)].strip() + "\n\n" + body
         return audit + body.strip()
     except (OSError, ValueError):
         # Packaged installs should always contain the skill. Keep generation usable if a downstream
@@ -485,6 +484,23 @@ def drop_intermediate_previews(base, candidate: dict, types: dict, results=None,
     return flow, results
 
 
+def keep_trigger_arming(base, candidate: dict) -> None:
+    """Build with Hermes never switches a trigger on or off: new triggers start off, existing ones keep their state
+    (and webhook URL). Only the user activates a trigger."""
+    old = {n.get("id"): n for n in (base or {}).get("nodes", []) if isinstance(n, dict)}
+    for node in candidate.get("nodes", []):
+        if not str(node.get("type") or "").startswith("trigger."):
+            continue
+        params = node.setdefault("params", {})
+        before = (old.get(node.get("id")) or {}).get("params") or {}
+        for field in ("active", "hook_id"):
+            if field in before:
+                params[field] = before[field]
+            else:
+                params.pop(field, None)
+        params.setdefault("active", False)
+
+
 def _candidate(base: dict | None, proposed: dict, types: dict, fallback_name: str, base_errors=None, prompt: str = ""):
     if not proposed["ops"]:
         raise CandidateError("the answer contains no operations")
@@ -497,6 +513,7 @@ def _candidate(base: dict | None, proposed: dict, types: dict, fallback_name: st
     except (ValueError, TypeError, KeyError) as exc:
         raise CandidateError(str(exc)) from None
     candidate, results = drop_intermediate_previews(base, candidate, types, results, prompt)
+    keep_trigger_arming(base, candidate)
     issues = G.validate(candidate, types)
     known = {(i.get("node"), i.get("port"), i.get("message")) for i in (base_errors or [])}
     new_errors = [i for i in issues if i.get("level") == "error" and

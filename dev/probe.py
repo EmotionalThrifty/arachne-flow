@@ -27,7 +27,7 @@ SCENARIOS = ("empty", "template", "running", "done", "inspector", "quick", "quic
              "partial", "fresh", "stop", "shortcut", "inspector_error", "tool_swap", "edit_keys",
              "agent_sync", "agent_sync_dirty", "agent_undo", "ask", "ask_none", "shell", "model_picker",
              "tool_options", "llm_info",
-             "lightbox", "lightbox_inspector", "palette", "files", "popin", "templates", "generate", "model_settings", "media_inputs", "inline_media", "timings", "logic", "loop", "schedule")
+             "lightbox", "lightbox_inspector", "palette", "files", "popin", "templates", "generate", "model_settings", "media_inputs", "inline_media", "timings", "logic", "loop", "triggers")
 
 
 def overlaps(nodes: list) -> list:
@@ -45,7 +45,7 @@ def probe(scenario: str, port: int, width=1600, height=1000) -> dict:
                                "llm_info": "inspector_llm",
                                "lightbox": "done", "lightbox_inspector": "inspector",
                                "palette": "template", "files": "template", "popin": "template",
-                               "templates": "template", "generate": "empty", "schedule": "template",
+                               "templates": "template", "generate": "empty",
                                "agent_undo": "template"}.get(scenario, scenario))
     query = {"events": "0", "diag_ms": "4500"}
     if seeded.get("flow_id"):
@@ -94,8 +94,8 @@ def probe(scenario: str, port: int, width=1600, height=1000) -> dict:
         query.update(logic="check", inspector="1", shell="desktop", diag_ms="7000")
     if scenario == "loop":
         query.update(loop="check", inspector="1", shell="desktop", diag_ms="6500")
-    if scenario == "schedule":
-        query.update(schedule="check", diag_ms="5500")
+    if scenario == "triggers":
+        query.update(triggers="check", inspector="1", diag_ms="6000")
     if scenario in ("agent_sync", "agent_sync_dirty"):
         query.update(agent_sync="dirty" if scenario.endswith("dirty") else "clean", diag_ms="5500")
     if scenario == "agent_undo":
@@ -699,17 +699,16 @@ def main() -> int:
             problems += check_logic(d.get("logic"))
         if s == "loop":
             problems += check_loop(d.get("loop"))
-        if s == "schedule":
-            sc = d.get("schedule") or {}
-            if not sc.get("menuItem") or not sc.get("dialog"):
-                problems.append(f"no Schedule with Hermes entry/dialog: {sc}")
-            if not sc.get("emptyError") or not sc.get("emptyDisabled"):
-                problems.append(f"empty schedule was not refused: {sc}")
-            draft = sc.get("draft") or ""
-            if "every weekday at 8am" not in draft or "fresh=true" not in draft or "flow_run(flow=" not in draft or "flow_id" in draft:
-                problems.append(f"cron draft: {draft!r}")
-            if not sc.get("closed") or "composer" not in (sc.get("notice") or ""):
-                problems.append(f"after submit: closed={sc.get('closed')} notice={sc.get('notice')!r}")
+        if s == "triggers":
+            tr = d.get("triggers") or {}
+            if tr.get("section") != "off" or not (tr.get("before") or "").startswith("Off."):
+                problems.append(f"trigger section before activation: {tr}")
+            if not re.fullmatch(r"http://127\.0\.0\.1:\d+/hook/f_[0-9a-f]+/n_[0-9a-f]+/[0-9a-f]{40}", tr.get("url") or ""):
+                problems.append(f"webhook URL after activation: {tr.get('url')!r}")
+            if tr.get("toggle") != "off" or "Trigger active" not in (tr.get("notice") or ""):
+                problems.append(f"after activation: toggle={tr.get('toggle')} notice={tr.get('notice')!r}")
+            if "Schedule with Hermes" in (tr.get("menuText") or ""):
+                problems.append("the flows menu still offers Schedule with Hermes")
         if s == "done":
             if "Done" not in (d.get("runChip") or ""):
                 problems.append(f"last run was not loaded on open: {d.get('runChip')}")

@@ -95,7 +95,7 @@ test('the flows menu is a role=menu whose rows are role=menuitem', () => {
   const menu = block('FlowMenu')
   assert.match(menu, /role: 'menu'/, 'the flows menu has role=menu')
   const rows = menu.match(/role: 'menuitem'/g) || []
-  // flow rows, New blank flow, template rows, save as template, schedule, duplicate, delete
+  // flow rows, New blank flow, template rows, save as template, duplicate, delete
   assert.ok(rows.length >= 6, `every row is a menuitem (found ${rows.length})`)
 })
 
@@ -115,7 +115,6 @@ test('clickable run log rows are buttons reachable by Tab', () => {
 
 test('every dialog goes through the focus-trapping frame', () => {
   assert.match(block('TemplateDialog'), /h\(DialogFrame,/, 'template dialog')
-  assert.match(block('ScheduleDialog'), /h\(DialogFrame,/, 'schedule dialog')
   assert.match(block('DialogFrame'), /role: 'dialog'/, 'the frame is a dialog')
   assert.match(block('DialogFrame'), /'aria-modal': 'true'/, 'and modal')
   assert.match(block('DialogFrame'), /trapFocus\(/, 'and traps Tab')

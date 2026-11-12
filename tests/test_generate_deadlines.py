@@ -130,7 +130,7 @@ class GenerateDeadlineTest(unittest.TestCase):
         messages = self.engine.generate.build_messages("Erstelle einen komplizierten Flow", None, types)
         system = messages[0]["content"]
         for section in ("## Mandatory flow audit", "## Node types (always available)", "## Ops for `flow_apply`",
-                        "## Example 1"):
+                        "## Example 1", "## Triggers"):
             self.assertIn(section, system)
         self.assertNotIn("## Debugging and repair", system)
         self.assertNotIn("## Workflow", system)

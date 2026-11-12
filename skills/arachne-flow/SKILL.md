@@ -85,14 +85,24 @@ ids in a second `flow_apply` call. New nodes in the first call can still use you
 - **Update one** with `replace="u-…"` (overwrites that template); without it a second template is added.
 - Built-in templates cannot be changed. Renaming and deleting the user's templates happens in Arachne Flow.
 
-## Scheduling a flow
+## Triggers: run a flow automatically
 
-When the user wants a flow to run on a schedule ("every morning", "in 30m"), create a cron job with
-`cronjob_manage(action='create')` — a flow is run by the agent, not by a scheduler inside the plugin. Each tick
-costs one small agent turn; there is no LLM-free path because the tool nodes need the gateway's tool registry
-and MCP connections. Canvas **Flows > Schedule with Hermes…** hands the same request to the chat composer.
-The job prompt must be self-contained: `In Arachne Flow, run flow <id> with flow_run(flow="<id>", inputs={...})`.
-Only while Hermes runs; the flow is used as saved at that time.
+When the user wants a flow to start by itself, add a trigger node as the flow's source — do NOT create a cron job:
+
+| Type | Outputs | Key params |
+|---|---|---|
+| `trigger.schedule` | `time` (ISO local time) | `schedule`: `every 15m`, `every 2h`, `daily 08:00`, `weekdays 07:30, 18:00`, `mon,fri 09:30`, `cron 0 8 * * 1-5` (German `täglich`/`werktags` too) |
+| `trigger.rss` | `item` (json), `title`, `link`, `summary` | `url` (http/https RSS or Atom), `every_minutes` (min 5), `max_items` per check |
+| `trigger.webhook` | `body` (json), `text` | — (its secret local URL appears once the user activates it) |
+
+A trigger starts the flow directly — no agent turn, no extra model cost — but only while Hermes (gateway or
+Desktop) runs. One run per event; an RSS check starts one run per new item (the first check only remembers the
+existing items). Several triggers may feed one flow: the one that fired outputs its event, the others are idle and
+their branches are skipped (join with `logic.merge` if they share later steps). Run by hand, a trigger outputs a
+sample (now / newest feed item / last webhook body), so the flow can be tested without waiting.
+**Never set `active`**: new triggers are off, and only the user switches them on in the inspector (`flow_apply`
+and Build with Hermes cannot arm them). Tell the user to press **Activate** on the trigger node. Steps that need
+interactive approval fail in triggered runs (no user is present), as in cron.
 
 ## Mandatory flow audit
 
@@ -197,6 +207,7 @@ setting, model compatibility, runtime behavior, privacy, and cost.
 | `logic.merge` | in `value` (several wires), out `value` | — (first wire whose branch ran wins, in wire order) |
 | `logic.foreach` | in `list`, out `item`; `index` (1, 2, …) is available **only inside the loop body** | `limit` (empty = plugin setting `max_items`, default 100) |
 | `logic.collect` | in `value`, out `list` | — (one entry per item, item order; items that took another If branch are left out) |
+| `trigger.schedule` / `trigger.rss` / `trigger.webhook` | outputs only (see **Triggers**) | `active` is user-only |
 | `output.preview` | in `value`, out `value` | — (repeats a value on the canvas; only on explicit request) |
 | `output.send_message` | in `message` / `attachment`, out `result` / `text` | `target` (fixed recipient), optional `message`, `timeout_s`; the user must explicitly enable file sending before an `attachment` can upload. Only supported files produced in the current run are accepted. |
 | `note` | — | `text` (comment on the canvas) |

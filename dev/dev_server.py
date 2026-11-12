@@ -368,6 +368,21 @@ def reset(scenario: str) -> dict:
             node["params"][E.picks.PARAM] = {node["params"]["path"]: E.picks.mint(env, flow["id"], node["id"], node["params"]["path"])}
         flow = E.store.save_flow(env, flow, create=True)
         return {"flow_id": flow["id"], "select": refs["m3d"], "run_id": None}
+    if scenario == "triggers":
+        flow = E.graph.new_flow("Triggers", "Schedule + webhook trigger nodes")
+        flow, results = E.graph.apply_ops(flow, [
+            {"op": "add_node", "ref": "clock", "type": "trigger.schedule", "title": "Every morning",
+             "params": {"schedule": "weekdays 08:00"}},
+            {"op": "add_node", "ref": "hook", "type": "trigger.webhook", "title": "Incoming"},
+            {"op": "add_node", "ref": "msg", "type": "text.template", "title": "Message",
+             "params": {"template": "{{time}} {{body}}"}},
+            {"op": "connect", "from": "clock.time", "to": "msg.time"},
+            {"op": "connect", "from": "hook.text", "to": "msg.body"},
+            {"op": "auto_layout"},
+        ], types)
+        refs = {r["ref"]: r["node"] for r in results if isinstance(r, dict) and r.get("ref")}
+        flow = E.store.save_flow(env, flow, create=True)
+        return {"flow_id": flow["id"], "select": refs["hook"], "run_id": None}
     if scenario == "inline_media":
         # Real local fixture bytes, not a provider call: every File node should show its own result.
         with open(os.path.join(ROOT, "tests", "fixtures", "inline-player.webm"), "rb") as fh:

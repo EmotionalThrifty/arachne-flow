@@ -14,10 +14,11 @@ class ConfigSchemaTest(unittest.TestCase):
             self.schema = yaml.safe_load(fh)["config_schema"]
 
     def test_keys_and_types(self):
-        self.assertEqual(set(self.schema), {"blocked_tools", "allow_tools", "max_parallel", "max_items", "node_timeout_s"})
+        self.assertEqual(set(self.schema), {"blocked_tools", "allow_tools", "max_parallel", "max_items", "node_timeout_s",
+                                            "webhook_port"})
         types = {k: v["type"] for k, v in self.schema.items()}
-        self.assertEqual(types, {"blocked_tools": "list", "allow_tools": "list",
-                                 "max_parallel": "int", "max_items": "int", "node_timeout_s": "int"})
+        self.assertEqual(types, {"blocked_tools": "list", "allow_tools": "list", "max_parallel": "int",
+                                 "max_items": "int", "node_timeout_s": "int", "webhook_port": "int"})
         for key, spec in self.schema.items():
             self.assertTrue(spec.get("label") and spec.get("description"), key)
 
@@ -28,6 +29,7 @@ class ConfigSchemaTest(unittest.TestCase):
         self.assertEqual(self.schema["allow_tools"]["default"], [])
         self.assertEqual(self.schema["max_parallel"]["default"], self.engine.runner.DEFAULT_MAX_PARALLEL)
         self.assertEqual(self.schema["node_timeout_s"]["default"], self.engine.runner.DEFAULT_NODE_TIMEOUT_S)
+        self.assertEqual(self.schema["webhook_port"]["default"], self.engine.triggers.DEFAULT_WEBHOOK_PORT)
         self.assertEqual(self.schema["max_items"]["default"], self.engine.runner.DEFAULT_MAX_ITEMS)
 
     def test_known_code_exec_mcp_tools_are_blocked_by_default(self):

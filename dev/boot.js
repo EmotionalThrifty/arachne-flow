@@ -442,38 +442,28 @@ if (params.get('agent_undo')) {
   })().catch((err) => diag.errors.push('agent_undo: ' + (err && err.message || err)))
 }
 
-// Scheduling a flow with Hermes cron: Flows > Schedule with Hermes… -> dialog -> composer draft
-if (params.get('schedule')) {
+// Trigger nodes: the inspector switch arms a webhook (URL appears), the flows menu has no agent-cron entry any more
+if (params.get('triggers')) {
   const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms))
   ;(async () => {
-    for (let i = 0; i < 80 && !document.querySelector('.fc-menu-toggle'); i++) await sleep(100)
-    await sleep(300)
     const out = {}
-    diag.schedule = out
-    document.querySelector('.fc-menu-toggle').click(); await sleep(200)
-    const item = document.querySelector('[data-fc-schedule]')
-    out.menuItem = !!item
-    if (!item) return
-    item.click(); await sleep(200)
-    out.dialog = !!document.querySelector('[aria-label="Schedule with Hermes"]')
-    const when = document.querySelector('[data-fc-schedule-when]')
-    if (!when) return
-    // empty -> no submit, an error instead
-    Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set.call(when, '   ')
-    when.dispatchEvent(new Event('input', { bubbles: true })); await sleep(150)
-    out.emptyError = document.querySelector('[data-fc-schedule-error]')?.textContent || ''
-    out.emptyDisabled = !!document.querySelector('[data-fc-schedule-submit]:disabled')
-    Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set.call(when, 'every weekday at 8am')
-    when.dispatchEvent(new Event('input', { bubbles: true })); await sleep(150)
-    const fresh = document.querySelector('[data-fc-schedule-fresh]')
-    fresh.click(); await sleep(150)
-    if (params.get('schedule') === 'shot') return   // leave the dialog open for the screenshot
-    document.querySelector('[data-fc-schedule-submit]').click(); await sleep(400)
-    out.draft = window.__devDraft || null
-    out.calls = window.__devDraftCalls || []
+    diag.triggers = out
+    const waitFor = async (fn, n = 80) => { for (let i = 0; i < n; i++) { const v = fn(); if (v) return v; await sleep(100) } return null }
+    const section = await waitFor(() => document.querySelector('[data-fc-trigger]'))
+    out.section = section ? section.dataset.fcTrigger : null
+    out.before = document.querySelector('[data-fc-trigger-state]')?.textContent || ''
+    const on = await waitFor(() => document.querySelector('[data-fc-trigger-toggle="on"]'))
+    if (!on) return
+    on.click()
+    const url = await waitFor(() => document.querySelector('[data-fc-webhook-url]'))
+    out.url = url ? url.value : null
+    out.after = document.querySelector('[data-fc-trigger-state]')?.textContent || ''
+    out.toggle = document.querySelector('[data-fc-trigger-toggle]')?.dataset.fcTriggerToggle || null
     out.notice = document.querySelector('.fc-notice')?.textContent || ''
-    out.closed = !document.querySelector('[aria-label="Schedule with Hermes"]')
-  })().catch((err) => diag.errors.push('schedule: ' + (err && err.message || err)))
+    document.querySelector('.fc-menu-toggle')?.click(); await sleep(200)
+    out.menuText = document.querySelector('[role="menu"]')?.textContent || ''
+    out.paletteTriggers = [...document.querySelectorAll('.fc-palette, [data-fc-palette]')].some((el) => el.textContent.includes('Triggers'))
+  })().catch((err) => diag.errors.push('triggers: ' + (err && err.message || err)))
 }
 
 if (params.get('ask')) {

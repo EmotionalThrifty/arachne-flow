@@ -25,7 +25,7 @@ const NEXT = {
   recoverConnection: 'retryConnection',
   openFlow: 'bootUp',
   loadTheirs: 'keepMine',
-  keepMine: 'scheduleFlow'
+  keepMine: 'askHermes'
 }
 function cut(name) {
   const from = SOURCE.indexOf(`  const ${name} = `)

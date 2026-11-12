@@ -39,7 +39,7 @@ DEFAULT_BLOCKED = (
 # Kanban/flow tools would recurse into Hermes' own orchestration; messaging tools post to real chats.
 BLOCKED_PREFIXES = ("kanban_", "flow_", "yb_", "feishu_", "send_message")
 
-CATEGORY_ORDER = ("Inputs", "AI", "Text", "Data", "Logic", "Media", "Web", "Output", "Utility", "Presets")
+CATEGORY_ORDER = ("Triggers", "Inputs", "AI", "Text", "Data", "Logic", "Media", "Web", "Output", "Utility", "Presets")
 
 # String properties whose names suggest a file/URL/media value accept any value (media is
 # converted to a path or URL by the executor); everything else maps by JSON-schema type.
@@ -65,7 +65,8 @@ _BUILTIN_HINTS = {
 
 def _builtin_types() -> list:
     """The hand-written node types. Fresh dicts on every call: callers may mutate them."""
-    types = _builtin_specs() + D.specs()
+    from . import triggers as T
+    types = _builtin_specs() + D.specs() + T.specs()
     for spec in types:
         spec.update(_BUILTIN_HINTS.get(spec["type"], {"typical": "instant"}))
     return types

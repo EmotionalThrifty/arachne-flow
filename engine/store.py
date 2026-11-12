@@ -499,6 +499,8 @@ def duplicate_flow(env, flow_id: str, name: str = None) -> dict:
         copy_["name"] = name or f"{source.get('name') or 'Untitled flow'} (copy)"
         copy_["revision"] = 0
         copy_["created_at"] = None
+        from . import triggers as T
+        T.disarm(copy_)          # a copy never starts by itself until its owner switches it on
         return save_flow(env, copy_, create=True)
 
 
@@ -703,6 +705,9 @@ def template_from_flow(flow: dict, clear_inputs: bool = False) -> dict:
                 node["params"] = {**params, **reset}
         node["params"] = graph.messaging_params(node, copy_target=True)
         node["params"].pop("picked_files", None)   # picks belong to one flow and node (picks.py), never shared
+        if str(node.get("type") or "").startswith("trigger."):
+            node["params"]["active"] = False         # a template never arrives armed
+            node["params"].pop("hook_id", None)
     viewport = flow.get("viewport") if isinstance(flow.get("viewport"), dict) else {"x": 0, "y": 0, "zoom": 1}
     return {"nodes": nodes, "edges": copy.deepcopy([e for e in flow.get("edges") or [] if isinstance(e, dict)]),
             "viewport": dict(viewport)}

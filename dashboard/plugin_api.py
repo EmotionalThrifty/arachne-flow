@@ -98,3 +98,12 @@ async def _multipart_body(request: Request) -> dict:
     if len(data) > MAX_BODY_BYTES:
         raise HTTPException(413, f"request body over {MAX_BODY_BYTES // (1024 * 1024)} MB")
     return {"name": name, "data": data}
+
+
+# This process serves the canvas, so it is long-lived: it may fire triggers (engine/triggers.py).
+try:
+    _runtime().STATE["dashboard"] = True
+    backend().start_triggers()
+except Exception:  # noqa: BLE001 - the router must mount even if the trigger loop cannot start
+    import logging
+    logging.getLogger("arachne-flow.api").exception("arachne-flow: trigger loop not started")
