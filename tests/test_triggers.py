@@ -108,7 +108,8 @@ class _Env:
         return self.engine.env.Env(ctx=self.ctx, state=self.state)
 
 
-class TriggeredRunTest(unittest.TestCase):
+class _TriggerCase(unittest.TestCase):
+    """Shared setup: a scheduler with a fake clock that may fire (tests call tick() themselves)."""
     def setUp(self):
         helpers.temp_data_dir()
         self.E = helpers.load_engine()
@@ -126,7 +127,8 @@ class TriggeredRunTest(unittest.TestCase):
                         "params": {**params, "active": active}})
             ops.append({"op": "add_node", "ref": ref + "_out", "type": "text.template", "title": ref + " out",
                         "params": {"template": "got {{v}}"}})
-            port = {"trigger.schedule": "time", "trigger.rss": "title", "trigger.webhook": "text"}[ntype]
+            port = {"trigger.schedule": "time", "trigger.rss": "title", "trigger.webhook": "text",
+                    "trigger.folder": "name", "trigger.flow": "status"}[ntype]
             ops.append({"op": "connect", "from": f"{ref}.{port}", "to": f"{ref}_out.v"})
         flow, results = self.E.graph.apply_ops(self.E.graph.new_flow("Triggered"), ops, self.types)
         self.refs = {r["ref"]: r["node"] for r in results if isinstance(r, dict) and r.get("ref")}
@@ -135,6 +137,9 @@ class TriggeredRunTest(unittest.TestCase):
     def wait_run(self, run_id):
         self.E.runner.wait(self.env, run_id, 15)
         return self.E.runner.get_run(self.env, run_id)
+
+
+class TriggeredRunTest(_TriggerCase):
 
     def test_schedule_fires_once_per_slot_and_other_triggers_stay_idle(self):
         flow = self.flow(("clock", "trigger.schedule", {"schedule": "every 1h"}),
@@ -254,7 +259,7 @@ class TriggeredRunTest(unittest.TestCase):
         self.assertNotIn("hook_id", by_id["n_000099"]["params"])
 
 
-class WebhookTest(TriggeredRunTest):
+class WebhookTest(_TriggerCase):
     def test_tokens_bind_flow_node_and_hook_id(self):
         flow = self.flow(("hook", "trigger.webhook", {"hook_id": "c" * 24}))
         node = next(n for n in flow["nodes"] if n["type"] == "trigger.webhook")
@@ -310,6 +315,145 @@ class WebhookTest(TriggeredRunTest):
         started = self.sched.tick(self.env)
         run = self.wait_run(started[0][2])
         self.assertEqual(run["nodes"][self.refs["hook_out"]]["outputs"]["text"], "got queued")
+
+
+class FolderWatchTest(_TriggerCase):
+    def setUp(self):
+        super().setUp()
+        self.dir = os.path.join(helpers.temp_data_dir(), "..", "inbox-" + str(time.time_ns()))
+        self.dir = os.path.abspath(self.dir)
+        os.makedirs(self.dir)
+        self.write("old.txt", "already here")
+
+    def write(self, name, text):
+        with open(os.path.join(self.dir, name), "w", encoding="utf-8") as fh:
+            fh.write(text)
+
+    def watched(self, pick=True, **params):
+        flow = self.flow(("inbox", "trigger.folder", {"folder": self.dir, "pattern": "*.txt", **params}))
+        nid = self.refs["inbox"]
+        if pick:
+            token = self.E.picks.mint(self.env, flow["id"], nid, self.dir, folder=True)
+            flow = self.E.store.modify_flow(self.env, flow["id"], lambda f: next(
+                n for n in f["nodes"] if n["id"] == nid)["params"].update(picked_files={self.dir: token}))
+        return flow
+
+    def test_new_files_start_one_run_each_once_fully_written(self):
+        flow = self.watched()
+        self.assertEqual(self.sched.tick(self.env), [])            # baseline: old.txt is remembered
+        self.write("new.txt", "fresh")
+        self.write("skip.md", "other pattern")
+        self.write("~$lock.txt", "office temp")
+        self.assertEqual(self.sched.tick(self.env), [])            # seen once: may still be written
+        started = self.sched.tick(self.env)                       # unchanged since: fire
+        self.assertEqual(len(started), 1)
+        run = self.wait_run(started[0][2])
+        self.assertEqual(run["status"], "done")
+        self.assertEqual(run["nodes"][self.refs["inbox_out"]]["outputs"]["text"], "got new.txt")
+        out = run["nodes"][self.refs["inbox"]]["outputs"]
+        self.assertEqual((out["change"], os.path.basename(out["path"])), ("new", "new.txt"))
+        self.assertEqual(self.sched.tick(self.env), [])
+        self.write("old.txt", "edited")                            # mode "new": edits do not start it
+        self.sched.tick(self.env)
+        self.assertEqual(self.sched.tick(self.env), [])
+        self.assertIn(self.T.key(flow["id"], self.refs["inbox"]), self.T.load_state(self.env))
+
+    def test_changed_mode_fires_on_edits(self):
+        self.watched(on="new or changed")
+        self.sched.tick(self.env)
+        with open(os.path.join(self.dir, "old.txt"), "a", encoding="utf-8") as fh:
+            fh.write(" + more")
+        self.sched.tick(self.env)
+        started = self.sched.tick(self.env)
+        run = self.wait_run(started[0][2])
+        self.assertEqual(run["nodes"][self.refs["inbox"]]["outputs"]["change"], "changed")
+
+    def test_a_folder_the_user_did_not_pick_is_never_watched(self):
+        flow = self.watched(pick=False)
+        self.sched.tick(self.env)
+        info = self.T.status(self.env, self.E.store.get_flow(self.env, flow["id"]))["nodes"][self.refs["inbox"]]
+        self.assertIn("Browse", info["error"])
+        self.assertEqual(self.T.folder_roots(self.env, flow["id"], self.E.store.get_flow(self.env, flow["id"])), ())
+        with self.assertRaises(ValueError):
+            self.E.picks.mint(self.env, flow["id"], self.refs["inbox"], os.path.join(self.dir, "old.txt"), folder=True)
+
+    def test_picked_folder_files_may_reach_tools_and_the_data_folder_is_refused(self):
+        flow = self.watched()
+        roots = self.T.folder_roots(self.env, flow["id"], self.E.store.get_flow(self.env, flow["id"]))
+        self.assertEqual(roots, (self.E.media.real_path(self.dir),))
+        data = self.E.store.data_dir(self.env)
+        node = {"id": "n_x", "type": "trigger.folder", "params": {"folder": data}}
+        token = self.E.picks.mint(self.env, flow["id"], "n_x", data, folder=True)
+        node["params"]["picked_files"] = {data: token}
+        with self.assertRaises(ValueError) as cm:
+            self.T.picked_folder(self.env, flow["id"], node)
+        self.assertIn("own data folder", str(cm.exception))
+
+    def test_run_by_hand_outputs_the_newest_matching_file(self):
+        flow = self.watched()
+        time.sleep(0.02)
+        self.write("newest.txt", "n")
+        run = self.E.runner.run_sync(self.env, flow["id"], timeout_s=15)
+        self.assertEqual(run["nodes"][self.refs["inbox_out"]]["outputs"]["text"], "got newest.txt")
+
+
+class AfterFlowTest(_TriggerCase):
+    def source(self, name="Digest", template="hello"):
+        flow, _ = self.E.graph.apply_ops(self.E.graph.new_flow(name), [
+            {"op": "add_node", "ref": "out", "type": "text.template", "title": "Out", "params": {"template": template}}],
+            self.types)
+        return self.E.store.save_flow(self.env, flow, create=True)
+
+    def test_runs_after_the_other_flow_succeeds_with_its_result(self):
+        src = self.source()
+        self.E.runner.run_sync(self.env, src["id"], timeout_s=15)          # before activation: ignored
+        self.flow(("after", "trigger.flow", {"flow": "digest", "when": "succeeded"}))
+        self.assertEqual(self.sched.tick(self.env), [])                   # baseline
+        self.E.runner.run_sync(self.env, src["id"], timeout_s=15)
+        started = self.sched.tick(self.env)
+        self.assertEqual(len(started), 1)
+        run = self.wait_run(started[0][2])
+        self.assertEqual(run["status"], "done")
+        out = run["nodes"][self.refs["after"]]["outputs"]
+        self.assertEqual(out["result"], {"Out": "hello"})
+        self.assertEqual(out["status"], "done")
+        self.assertEqual(run["nodes"][self.refs["after_out"]]["outputs"]["text"], "got done")
+        self.assertEqual(run["trigger"]["depth"], 1)
+        self.assertEqual(self.sched.tick(self.env), [])
+
+    def test_when_failed_ignores_successful_runs(self):
+        src = self.source()
+        self.flow(("after", "trigger.flow", {"flow": src["id"], "when": "failed"}))
+        self.sched.tick(self.env)
+        self.E.runner.run_sync(self.env, src["id"], timeout_s=15)
+        self.assertEqual(self.sched.tick(self.env), [])
+
+    def test_itself_unknown_and_ambiguous_flows_are_errors(self):
+        self.source("Twin")
+        self.source("Twin")
+        flow = self.flow(("after", "trigger.flow", {"flow": "Twin"}))
+        with self.assertRaises(ValueError):
+            self.T.resolve_flow(self.env, "Twin")
+        with self.assertRaises(ValueError):
+            self.T.resolve_flow(self.env, "nope")
+        with self.assertRaises(ValueError):
+            self.T.resolve_flow(self.env, flow["id"], own_id=flow["id"])
+
+    def test_chains_stop_after_five_flows_in_a_row(self):
+        src = self.source()
+        self.flow(("after", "trigger.flow", {"flow": src["id"]}))
+        self.sched.tick(self.env)
+        self.E.runner.run_sync(self.env, src["id"], timeout_s=15)
+        real_get = self.E.runner.get_run
+
+        def deep(env, run_id):
+            run = real_get(env, run_id)
+            return dict(run, trigger={"type": "trigger.flow", "depth": self.T.FLOW_CHAIN_MAX})
+        with patch.object(self.E.runner, "get_run", side_effect=deep):
+            self.assertEqual(self.sched.tick(self.env), [])
+        st = self.T.load_state(self.env)
+        notes = [v.get("note") or "" for v in st.values() if isinstance(v, dict)]
+        self.assertTrue(any("in a row" in n for n in notes), notes)
 
 
 class LeaderTest(unittest.TestCase):

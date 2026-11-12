@@ -1,6 +1,8 @@
-"""Trigger nodes: start a flow on a schedule, for each new RSS/Atom item, or when a webhook is called.
+"""Trigger nodes: start a flow on a schedule, for each new RSS/Atom item, when a webhook is called, for each new
+file in a watched folder, or after another flow finished.
 
-A trigger is a source node in the flow (``trigger.schedule``, ``trigger.rss``, ``trigger.webhook``). Nothing fires
+A trigger is a source node in the flow (``trigger.schedule``, ``trigger.rss``, ``trigger.webhook``,
+``trigger.folder``, ``trigger.flow``). Nothing fires
 until the node is switched on (param ``active``). Firing is done by ONE long-lived Hermes process per data folder
 (the gateway or the Desktop backend; whichever holds ``locks/triggers.lock``), so two processes never run the same
 trigger twice. No agent turn and no LLM call happen for a trigger itself: it starts the flow directly, so a
@@ -12,6 +14,7 @@ produces a sample: the current time, the newest feed item, or the last webhook r
 """
 from __future__ import annotations
 
+import fnmatch
 import hashlib
 import hmac
 import json
@@ -31,7 +34,8 @@ from . import store as S
 logger = logging.getLogger("arachne-flow.triggers")
 
 SCHEDULE, RSS, WEBHOOK = "trigger.schedule", "trigger.rss", "trigger.webhook"
-TYPES = (SCHEDULE, RSS, WEBHOOK)
+FOLDER, AFTER_FLOW = "trigger.folder", "trigger.flow"
+TYPES = (SCHEDULE, RSS, WEBHOOK, FOLDER, AFTER_FLOW)
 EVENT, IDLE = "$event", "$idle"           # injected into the effective (never saved) flow of a triggered run
 IDLE_BRANCH = "idle"                      # no output port has this name: every output of an idle trigger is dead
 
@@ -47,6 +51,12 @@ RSS_SEEN_KEEP = 500
 WEBHOOK_MAX_BYTES = 1024 * 1024
 WEBHOOK_QUEUE = 20
 DEFAULT_WEBHOOK_PORT = 8649
+FOLDER_MAX_ENTRIES = 5000                 # files looked at per check; a bigger folder is watched only in part
+FOLDER_MAX_DEPTH = 4                      # subfolder levels when "Include subfolders" is on
+FOLDER_SKIP_SUFFIXES = (".tmp", ".part", ".partial", ".crdownload", ".download", "~", ".lock", ".swp")
+FLOW_CHAIN_MAX = 5                        # After-flow triggers in a row before the chain is stopped (loops)
+FLOW_SEEN_KEEP = 200
+FINISHED = ("done", "error", "cancelled", "invalid")
 
 _FRESH = {"name": "fresh", "kind": "boolean", "label": "Ignore cache", "default": False,
           "description": "Triggered runs normally reuse cached steps like a normal Run. On: every step runs again."}
@@ -89,6 +99,38 @@ def specs() -> list:
          "params": [dict(_ACTIVE), dict(_FRESH),
                     {"name": "hook_id", "kind": "text", "label": "Hook id", "default": "", "hidden": True,
                      "description": "Random part of the webhook URL; set when the trigger is first activated."}]},
+        {**common, "type": FOLDER, "title": "Folder watch", "icon": "folder-opened",
+         "description": "Starts the flow once for every new (or changed) file in a folder you chose. The first check "
+                        "only remembers the files already there. Run by hand it outputs the newest matching file.",
+         "outputs": [{"name": "file", "type": "any", "label": "File"},
+                     {"name": "path", "type": "text", "label": "Path"},
+                     {"name": "name", "type": "text", "label": "File name"},
+                     {"name": "change", "type": "text", "label": "Change"}],
+         "params": [
+             {"name": "folder", "kind": "text", "label": "Folder", "default": "", "required": True, "browse": "folder",
+              "description": "The folder to watch. Choose it with Browse…: a folder set by the agent is not watched."},
+             {"name": "pattern", "kind": "text", "label": "Files", "default": "*",
+              "description": "Which files count, e.g. * · *.md · *.png, *.jpg (comma-separated, case-insensitive)."},
+             {"name": "on", "kind": "select", "label": "Start on", "default": "new", "options": ["new", "new or changed"],
+              "description": "new: only files that appear. new or changed: also when an existing file is saved again."},
+             {"name": "subfolders", "kind": "boolean", "label": "Include subfolders", "default": False},
+             {"name": "max_items", "kind": "number", "label": "Max files per check", "default": 5, "min": 1, "max": 20,
+              "integer": True, "description": "Each file starts its own run, one after another."},
+             dict(_ACTIVE), dict(_FRESH)]},
+        {**common, "type": AFTER_FLOW, "title": "After flow", "icon": "debug-step-over",
+         "description": "Starts this flow when another flow finished (done, failed, or either). Its results come "
+                        "along. Run by hand it uses that flow's last finished run.",
+         "outputs": [{"name": "result", "type": "json", "label": "Result"},
+                     {"name": "status", "type": "text", "label": "Status"},
+                     {"name": "run", "type": "json", "label": "Run"}],
+         "params": [
+             {"name": "flow", "kind": "text", "label": "Flow", "default": "", "required": True,
+              "description": "Name or id of the flow to wait for (not this flow)."},
+             {"name": "when", "kind": "select", "label": "When it", "default": "succeeded",
+              "options": ["succeeded", "failed", "finished"],
+              "description": "succeeded: the run finished without errors. failed: it ended with an error. "
+                             "finished: either. Runs of a single node are ignored."},
+             dict(_ACTIVE), dict(_FRESH)]},
     ]
 
 
@@ -387,7 +429,8 @@ def key(flow_id: str, node_id: str) -> str:
 
 def _signature(node: dict) -> str:
     p = node.get("params") or {}
-    relevant = {k: p.get(k) for k in ("schedule", "url", "every_minutes", "hook_id")}
+    relevant = {k: p.get(k) for k in ("schedule", "url", "every_minutes", "hook_id", "folder", "pattern",
+                                      "subfolders", "on", "flow", "when")}
     return hashlib.sha256(json.dumps([node.get("type"), relevant], sort_keys=True, default=str).encode()).hexdigest()[:16]
 
 
@@ -460,6 +503,157 @@ def webhook_event(raw: bytes, content_type: str = "", query: dict = None) -> dic
     return {"body": body, "text": text}
 
 
+# ----------------------------------------------------------------- folder watch
+
+def _patterns(text) -> list:
+    pats = [p.strip().lower() for p in str(text or "*").replace(";", ",").split(",") if p.strip()]
+    return pats or ["*"]
+
+
+def _skip_name(name: str) -> bool:
+    low = name.lower()
+    return low.startswith(("~$", ".")) or low.endswith(FOLDER_SKIP_SUFFIXES) or low in ("thumbs.db", "desktop.ini")
+
+
+def scan_folder(folder: str, pattern="*", subfolders: bool = False) -> dict:
+    """{relative path: [mtime_ns, size]} of the matching files (hidden, temporary and secret files left out)."""
+    from . import media as M
+    pats = _patterns(pattern)
+    out, stack = {}, [(folder, "", 0)]
+    while stack and len(out) < FOLDER_MAX_ENTRIES:
+        base, rel, depth = stack.pop()
+        try:
+            entries = sorted(os.scandir(base), key=lambda e: e.name.lower())
+        except OSError:
+            continue
+        for e in entries:
+            if _skip_name(e.name):
+                continue
+            sub = f"{rel}{e.name}"
+            try:
+                if e.is_dir(follow_symlinks=False):
+                    if subfolders and depth < FOLDER_MAX_DEPTH:
+                        stack.append((e.path, sub + os.sep, depth + 1))
+                    continue
+                if not e.is_file(follow_symlinks=False):
+                    continue
+                if not any(fnmatch.fnmatchcase(e.name.lower(), p) for p in pats):
+                    continue
+                if M.secret_reason(e.path):
+                    continue
+                stat = e.stat(follow_symlinks=False)
+            except OSError:
+                continue
+            out[sub] = [stat.st_mtime_ns, stat.st_size]
+            if len(out) >= FOLDER_MAX_ENTRIES:
+                break
+    return out
+
+
+def picked_folder(env, flow_id: str, node: dict) -> str:
+    """The real path of the node's folder, only if the user picked it in the canvas (picks.py); else ValueError."""
+    from . import media as M
+    from . import picks as PK
+    folder = str((node.get("params") or {}).get("folder") or "").strip().strip('"')
+    if not folder:
+        raise ValueError("choose the folder to watch")
+    try:
+        M.require_local_path(folder)
+        real = M.real_path(folder)
+    except (M.MediaError, OSError, ValueError) as exc:
+        raise ValueError(str(exc)) from None
+    if not os.path.isdir(real):
+        raise ValueError(f"folder not found: {folder}")
+    if real not in PK.node_picks(env, flow_id, node):
+        raise ValueError("choose the folder with Browse… in the canvas (a folder set by the agent is not watched)")
+    data = M.real_path(S.data_dir(env))
+    if real == data or real.startswith(data.rstrip("\\/") + os.sep) or data.startswith(real.rstrip("\\/") + os.sep):
+        raise ValueError("Arachne Flow's own data folder cannot be watched (its runs would start the flow again)")
+    return real
+
+
+def folder_roots(env, flow_id: str, flow: dict) -> tuple:
+    """Folders the user picked for Folder watch nodes of this flow: their files may reach tools like a picked file."""
+    out = []
+    for node in (flow or {}).get("nodes") or []:
+        if isinstance(node, dict) and node.get("type") == FOLDER:
+            try:
+                out.append(picked_folder(env, flow_id, node))
+            except ValueError:
+                continue
+    return tuple(out)
+
+
+def folder_event(folder: str, rel: str, change: str) -> dict:
+    from . import media as M
+    path = os.path.join(folder, rel)
+    return {"file": M.from_local(path, copy=False), "path": path, "name": os.path.basename(rel), "change": change}
+
+
+# ----------------------------------------------------------------- after another flow
+
+def resolve_flow(env, ref, own_id: str = None) -> dict:
+    """The flow named by id or (unique, case-insensitive) name; ValueError if none, ambiguous, or this flow."""
+    ref = str(ref or "").strip()
+    if not ref:
+        raise ValueError("choose the flow to wait for")
+    found = None
+    try:
+        found = S.get_flow(env, ref)
+    except Exception:  # noqa: BLE001 - not an id: try names
+        matches = [f for f in S.list_flows(env) if str(f.get("name") or "").strip().lower() == ref.lower()]
+        if len(matches) > 1:
+            raise ValueError(f"several flows are called {ref!r}; use the flow id") from None
+        if matches:
+            found = S.get_flow(env, matches[0]["id"])
+    if not found:
+        raise ValueError(f"no flow called {ref!r}")
+    if own_id and found.get("id") == own_id:
+        raise ValueError("a flow cannot wait for itself; choose another flow")
+    return found
+
+
+def _when_matches(when: str, status: str) -> bool:
+    when = str(when or "succeeded").lower()
+    if when == "failed":
+        return status in ("error", "invalid", "cancelled")
+    if when == "finished":
+        return status in FINISHED
+    return status == "done"
+
+
+def run_result(source: dict, run: dict) -> dict:
+    """Outputs of the source flow's end steps (nodes nothing reads from), by title."""
+    from . import runner as R
+    feeding = {e.get("from", {}).get("node") for e in source.get("edges", []) if isinstance(e, dict)}
+    out = {}
+    for node in source.get("nodes", []):
+        nid = node.get("id")
+        if not nid or nid in feeding or node.get("type") in ("note",) or is_trigger(node):
+            continue
+        st = (run.get("nodes") or {}).get(nid) or {}
+        outputs = st.get("outputs")
+        if not isinstance(outputs, dict) or st.get("status") not in ("done", "cached"):
+            continue
+        value = {k: R.load_value(v) for k, v in outputs.items() if not str(k).startswith("$")}
+        if len(value) == 1:
+            value = next(iter(value.values()))
+        name = str(node.get("title") or nid)
+        out[name if name not in out else f"{name} ({nid})"] = value
+    return out
+
+
+def flow_event(env, source: dict, run: dict) -> dict:
+    summary = S.summarize_run(run)
+    summary["error"] = run.get("error")
+    return {"result": run_result(source, run), "status": run.get("status") or "", "run": summary}
+
+
+def _chain_depth(run: dict) -> int:
+    trig = run.get("trigger") if isinstance(run.get("trigger"), dict) else {}
+    return int(trig.get("depth") or 0) if trig.get("type") == AFTER_FLOW else 0
+
+
 # ----------------------------------------------------------------- executor
 
 async def execute(env, node, spec, inputs, nctx):
@@ -492,6 +686,28 @@ async def execute(env, node, spec, inputs, nctx):
             return {"body": last.get("body"), "text": last.get("text", "")}
         nctx.log("no webhook request received yet; empty body (run by hand)")
         return {"body": {}, "text": ""}
+    if ntype == FOLDER:
+        try:
+            folder = picked_folder(env, nctx.flow_id, node)
+        except ValueError as exc:
+            raise X.NodeError(str(exc)) from None
+        files = scan_folder(folder, params.get("pattern"), _on(params.get("subfolders")))
+        if not files:
+            raise X.NodeError("no matching file in the folder yet")
+        newest = max(files, key=lambda rel: files[rel][0])
+        nctx.log(f"newest of {len(files)} matching files (run by hand)")
+        return folder_event(folder, newest, "sample")
+    if ntype == AFTER_FLOW:
+        from . import runner as R
+        try:
+            source = resolve_flow(env, params.get("flow"), nctx.flow_id)
+        except ValueError as exc:
+            raise X.NodeError(str(exc)) from None
+        for summary in S.list_runs(env, source["id"], limit=20):
+            if summary.get("status") in FINISHED and not summary.get("target_node"):
+                nctx.log(f"last finished run of {source.get('name') or source['id']} (run by hand)")
+                return flow_event(env, source, R.get_run(env, summary["id"]))
+        raise X.NodeError(f"{source.get('name') or source['id']} has no finished run yet")
     raise X.NodeError(f"unknown trigger {ntype!r}")
 
 
@@ -693,7 +909,8 @@ class Scheduler:
                         for event in runs:
                             if busy:
                                 break
-                            run_id = self._fire(env, flow, node, event, st, now)
+                            extra = event.pop("$meta", None) if isinstance(event, dict) else None
+                            run_id = self._fire(env, flow, node, event, st, now, extra)
                             started.append((flow["id"], node["id"], run_id))
                             busy, changed = True, True
                         if st.get("error"):
@@ -767,15 +984,99 @@ class Scheduler:
             if not q or busy:
                 return [], {"next": None}
             return [q.pop(0)], {"next": None}
+        if ntype == FOLDER:
+            return self._check_folder(env, flow, node, st, busy)
+        if ntype == AFTER_FLOW:
+            return self._check_after(env, flow, node, st, busy)
         return [], {}
 
-    def _fire(self, env, flow, node, event, st, now) -> str:
+    def _check_folder(self, env, flow, node, st, busy) -> tuple:
+        """New or changed files fire once they are stable (same size and time on two checks in a row)."""
+        params = node.get("params") or {}
+        folder = picked_folder(env, flow["id"], node)
+        upd = {"next": None}
+        pending = [p for p in st.get("pending") or [] if isinstance(p, list) and len(p) == 2]
+        if not pending:
+            current = scan_folder(folder, params.get("pattern"), _on(params.get("subfolders")))
+            if "known" not in st:                     # first check: remember, do not flood
+                upd.update(known=current, settling={},
+                           note=f"watching {len(current)} existing file{'s' if len(current) != 1 else ''}; "
+                                "new ones start the flow")
+                return [], upd
+            known, settling = dict(st.get("known") or {}), dict(st.get("settling") or {})
+            changed_too = str(params.get("on") or "new").lower() != "new"
+            ready, still = [], {}
+            for rel, sig in current.items():
+                before = known.get(rel)
+                if before == sig:
+                    continue
+                if before is not None and not changed_too:
+                    known[rel] = sig                  # an edit of a known file: just remember the new state
+                    continue
+                if settling.get(rel) == sig:          # unchanged since the last check: done being written
+                    ready.append((sig[0], rel, "new" if before is None else "changed"))
+                    known[rel] = sig
+                else:
+                    still[rel] = sig
+            for rel in [r for r in known if r not in current]:
+                known.pop(rel)                        # deleted: a file put back later counts as new
+            ready.sort()
+            limit = max(1, min(20, int(float(params.get("max_items") or 5))))
+            pending = [[rel, change] for _t, rel, change in ready[:limit]]
+            upd.update(known=known, settling=still)
+            if len(ready) > limit:
+                upd["note"] = f"{len(ready) - limit} more new files were skipped (max {limit} per check)"
+        if busy:
+            upd["pending"] = pending
+            return [], upd
+        events = []
+        while pending and not events:
+            rel, change = pending.pop(0)
+            if os.path.isfile(os.path.join(folder, rel)):
+                events.append(folder_event(folder, rel, change))
+        upd["pending"] = pending
+        return events, upd
+
+    def _check_after(self, env, flow, node, st, busy) -> tuple:
+        from . import runner as R
+        params = node.get("params") or {}
+        source = resolve_flow(env, params.get("flow"), flow["id"])
+        upd = {"next": None}
+        finished = [r for r in S.list_runs(env, source["id"], limit=20) if r.get("status") in FINISHED]
+        if st.get("source") != source["id"] or "seen" not in st:   # first check: only later runs count
+            return [], dict(upd, source=source["id"], seen=[r["id"] for r in finished][:FLOW_SEEN_KEEP],
+                            pending=[], note=f"waiting for {source.get('name') or source['id']} to finish")
+        seen = list(st.get("seen") or [])
+        known = set(seen)
+        pending = [p for p in st.get("pending") or [] if isinstance(p, str)]
+        for summary in reversed(finished):                       # oldest first
+            if summary["id"] in known:
+                continue
+            seen.insert(0, summary["id"])
+            if not summary.get("target_node") and _when_matches(params.get("when"), summary.get("status")):
+                pending.append(summary["id"])
+        upd.update(seen=seen[:FLOW_SEEN_KEEP])
+        if busy or not pending:
+            upd["pending"] = pending
+            return [], upd
+        run_id, rest = pending[0], pending[1:]
+        upd["pending"] = rest
+        run = R.get_run(env, run_id)
+        depth = _chain_depth(run)
+        if depth >= FLOW_CHAIN_MAX:
+            upd["note"] = f"stopped: {depth} flows in a row started each other (a loop?)"
+            return [], upd
+        event = flow_event(env, source, run)
+        event["$meta"] = {"depth": depth + 1, "after_run": run_id}
+        return [event], upd
+
+    def _fire(self, env, flow, node, event, st, now, extra: dict = None) -> str:
         from . import runner as R
         params = node.get("params") or {}
         effective = triggered_flow(flow, node["id"], event)
         handle = R.start_run(env, flow["id"], fresh=_on(params.get("fresh")), flow=effective,
                              meta={"trigger": {"node": node["id"], "type": node.get("type"),
-                                               "title": node.get("title") or ""}})
+                                               "title": node.get("title") or "", **(extra or {})}})
         st.update(last_fire=now, last_run=handle.run["id"], fires=int(st.get("fires") or 0) + 1)
         st.pop("note", None)
         logger.info("arachne-flow: trigger %s started run %s", key(flow["id"], node["id"]), handle.run["id"])
@@ -868,6 +1169,14 @@ def make_server(scheduler: Scheduler, env_factory, port: int):
                 return self._send(404, {"error": "unknown webhook"})
             length = self.headers.get("Content-Length", "0")
             if not length.isdigit() or int(length) > WEBHOOK_MAX_BYTES:
+                if length.isdigit() and int(length) <= 4 * WEBHOOK_MAX_BYTES:
+                    left = int(length)            # read it away first: closing unread makes the client see a reset
+                    while left > 0:
+                        chunk = self.rfile.read(min(left, 65536))
+                        if not chunk:
+                            break
+                        left -= len(chunk)
+                self.close_connection = True
                 return self._send(413, {"error": f"body over {WEBHOOK_MAX_BYTES // 1024} KB or no length"})
             raw = self.rfile.read(int(length))
             query = {k: v[0] if len(v) == 1 else v for k, v in parse_qs(parts.query).items()} or None
@@ -904,6 +1213,18 @@ def status(env, flow: dict, scheduler: Scheduler = None) -> dict:
             info["url"] = webhook_url(env, flow["id"], node)
             last = st.get("last_event")
             info["last_event_at"] = last.get("at") if isinstance(last, dict) else None
+        if node.get("type") == FOLDER:
+            try:
+                picked_folder(env, flow["id"], node)
+                info["watching"] = str((node.get("params") or {}).get("folder") or "").strip()   # as the user wrote it
+            except ValueError as exc:
+                info["error"] = str(exc)
+        if node.get("type") == AFTER_FLOW:
+            try:
+                source = resolve_flow(env, (node.get("params") or {}).get("flow"), flow["id"])
+                info["source"] = source.get("name") or source["id"]
+            except ValueError as exc:
+                info["error"] = str(exc)
         out[node["id"]] = info
     leader_pid = None
     try:
@@ -931,4 +1252,10 @@ def validate_issues(node: dict) -> list:
             issues.append(("error", "enter the feed URL"))
         elif not url.lower().startswith(("http://", "https://")):
             issues.append(("error", "the feed URL must start with http:// or https://"))
+    elif node.get("type") == FOLDER:
+        if not str(params.get("folder") or "").strip():
+            issues.append(("error", "choose the folder to watch (Browse…)"))
+    elif node.get("type") == AFTER_FLOW:
+        if not str(params.get("flow") or "").strip():
+            issues.append(("error", "enter the name or id of the flow to wait for"))
     return issues

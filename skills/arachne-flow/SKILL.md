@@ -94,10 +94,14 @@ When the user wants a flow to start by itself, add a trigger node as the flow's 
 | `trigger.schedule` | `time` (ISO local time) | `schedule`: `every 15m`, `every 2h`, `daily 08:00`, `weekdays 07:30, 18:00`, `mon,fri 09:30`, `cron 0 8 * * 1-5` (German `täglich`/`werktags` too) |
 | `trigger.rss` | `item` (json), `title`, `link`, `summary` | `url` (http/https RSS or Atom), `every_minutes` (min 5), `max_items` per check |
 | `trigger.webhook` | `body` (json), `text` | — (its secret local URL appears once the user activates it) |
+| `trigger.folder` | `file`, `path`, `name`, `change` | `folder` (user picks it with Browse…; never set it yourself), `pattern` (`*.md, *.png`), `on` (`new` / `new or changed`), `subfolders` |
+| `trigger.flow` | `result` (json: end-step outputs by title), `status`, `run` | `flow` (name or id of another flow), `when` (`succeeded` / `failed` / `finished`) |
 
 A trigger starts the flow directly — no agent turn, no extra model cost — but only while Hermes (gateway or
 Desktop) runs. One run per event; an RSS check starts one run per new item (the first check only remembers the
-existing items). Several triggers may feed one flow: the one that fired outputs its event, the others are idle and
+existing items; a folder watch likewise remembers the files already there and fires once a new file is fully
+written). Folder watch only watches a folder the user picked in the canvas: ask the user to press Browse…. After
+flow chains flows (at most 5 in a row, so loops stop). Several triggers may feed one flow: the one that fired outputs its event, the others are idle and
 their branches are skipped (join with `logic.merge` if they share later steps). Run by hand, a trigger outputs a
 sample (now / newest feed item / last webhook body), so the flow can be tested without waiting.
 **Never set `active`**: new triggers are off, and only the user switches them on in the inspector (`flow_apply`
@@ -207,7 +211,7 @@ setting, model compatibility, runtime behavior, privacy, and cost.
 | `logic.merge` | in `value` (several wires), out `value` | — (first wire whose branch ran wins, in wire order) |
 | `logic.foreach` | in `list`, out `item`; `index` (1, 2, …) is available **only inside the loop body** | `limit` (empty = plugin setting `max_items`, default 100) |
 | `logic.collect` | in `value`, out `list` | — (one entry per item, item order; items that took another If branch are left out) |
-| `trigger.schedule` / `trigger.rss` / `trigger.webhook` | outputs only (see **Triggers**) | `active` is user-only |
+| `trigger.schedule` / `.rss` / `.webhook` / `.folder` / `.flow` | outputs only (see **Triggers**) | `active` is user-only |
 | `output.preview` | in `value`, out `value` | — (repeats a value on the canvas; only on explicit request) |
 | `output.send_message` | in `message` / `attachment`, out `result` / `text` | `target` (fixed recipient), optional `message`, `timeout_s`; the user must explicitly enable file sending before an `attachment` can upload. Only supported files produced in the current run are accepted. |
 | `note` | — | `text` (comment on the canvas) |

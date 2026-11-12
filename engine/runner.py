@@ -784,6 +784,8 @@ class _Execution:
         # Files the user picked in the canvas for this flow; any other local file outside the uploads/outputs
         # folders is never inlined into a tool argument (catalog review).
         self.approved = P.flow_picks(env, self.run["flow_id"], flow)
+        from . import triggers as T   # lazy: triggers imports runner lazily too
+        self.approved_dirs = T.folder_roots(env, self.run["flow_id"], flow)
         self._last_save = 0.0
         self.slots = None                      # asyncio.Semaphore(max_parallel), made inside the event loop
         # G11: For each loops. body/collects keep run order (topological); body nodes are run by run_loop.
@@ -948,6 +950,7 @@ class _Execution:
                     return
             nctx = X.NodeContext(run_id=self.run["id"], node_id=nid, out_dir=self.out_dir,
                                  flow_id=self.run["flow_id"], approved=self.approved,
+                                 approved_dirs=self.approved_dirs,
                                  timeout_s=float((spec or {}).get("timeout_s") or self.timeout),
                                  log=lambda msg: self.set_node(nid, progress=msg))
             async with self.slots:
@@ -1121,6 +1124,7 @@ class _Execution:
                     return {"status": "cached", "ms": ms(), **_branch(hit)}, hit
             nctx = X.NodeContext(run_id=self.run["id"], node_id=f"{nid}-{index + 1}", out_dir=self.out_dir,
                                  flow_id=self.run["flow_id"], approved=self.approved,
+                                 approved_dirs=self.approved_dirs,
                                  timeout_s=float((spec or {}).get("timeout_s") or self.timeout),
                                  log=lambda msg: self.set_node(nid, progress=f"Item {index + 1}: {msg}"))
             async with self.slots:

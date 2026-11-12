@@ -947,7 +947,7 @@ def _flow_action(env, method, flow_id, action, query, body):
         S.get_flow(env, flow_id)
         node_id, path = body.get("node_id"), body.get("path")
         try:
-            token = PK.mint(env, flow_id, node_id, path)
+            token = PK.mint(env, flow_id, node_id, path, folder=body.get("folder") is True)
         except (ValueError, M.MediaError) as exc:
             _bad(str(exc))
         return {"node_id": node_id, "path": path.strip(), "token": token}

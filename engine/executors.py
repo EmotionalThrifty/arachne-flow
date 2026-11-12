@@ -40,6 +40,7 @@ class NodeContext:
     out_dir: str                              # outputs/<run_id>
     flow_id: Optional[str] = None             # required for recipient-scoped messaging consent
     approved: frozenset = frozenset()         # real paths the user picked in this flow's canvas (picks.py)
+    approved_dirs: tuple = ()                 # folders picked for Folder watch triggers: their files count as picked
     timeout_s: float = DEFAULT_TIMEOUT_S
     allow_download: bool = True
     # Required on purpose: a silent no-op default hid every job status line (E-1).
@@ -762,14 +763,16 @@ async def _trigger(env, node, spec, inputs, nctx):
     return await T.execute(env, node, spec, inputs, nctx)
 
 
-BUILTIN.update({name: _trigger for name in ("trigger.schedule", "trigger.rss", "trigger.webhook")})
+BUILTIN.update({name: _trigger for name in ("trigger.schedule", "trigger.rss", "trigger.webhook", "trigger.folder",
+                                             "trigger.flow")})
 
 
 async def execute(env, node: dict, spec: dict, inputs: dict, nctx: NodeContext) -> dict:
     """Run one node. Raises NodeError for user-facing failures."""
     if spec is None:
         raise NodeError(f"unknown node type {node.get('type')!r} (tool missing or blocked?)")
-    token = M.set_approved(getattr(nctx, "approved", None) or (), roots=(getattr(nctx, "out_dir", None),))
+    token = M.set_approved(getattr(nctx, "approved", None) or (),
+                           roots=(getattr(nctx, "out_dir", None), *(getattr(nctx, "approved_dirs", None) or ())))
     try:
         handler = BUILTIN.get(node.get("type"))
         if handler is not None:

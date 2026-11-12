@@ -30,8 +30,9 @@ def _ids_ok(flow_id, node_id) -> bool:
     return all(isinstance(v, str) and v.strip() for v in (flow_id, node_id))
 
 
-def mint(env, flow_id: str, node_id: str, path: str) -> str:
-    """Only the Desktop pick route calls this, right after the user chose ``path`` in a native file dialog."""
+def mint(env, flow_id: str, node_id: str, path: str, folder: bool = False) -> str:
+    """Only the Desktop pick route calls this, right after the user chose ``path`` in a native file dialog
+    (``folder``: a folder dialog, for Folder watch triggers)."""
     if not _ids_ok(flow_id, node_id):
         raise ValueError("flow and node are required for a file pick")
     if not isinstance(path, str) or not path.strip():
@@ -39,7 +40,10 @@ def mint(env, flow_id: str, node_id: str, path: str) -> str:
     path = path.strip()
     M.require_local_path(path)
     M.require_readable(path)
-    if not os.path.isfile(os.path.expanduser(path)):
+    if folder:
+        if not os.path.isdir(os.path.expanduser(path)):
+            raise ValueError(f"folder not found: {path}")
+    elif not os.path.isfile(os.path.expanduser(path)):
         raise ValueError(f"file not found: {path}")
     return _mac(env, flow_id.strip(), node_id.strip(), M.real_path(path))
 

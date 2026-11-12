@@ -106,7 +106,7 @@ In chat or scheduled jobs, Hermes uses `flow_list`, `flow_get`, `flow_node_types
   It appears only when the official `mcp-serve` plugin exposes `channels_list` and `messages_send`; the raw send tool stays blocked in the palette.
   The recipient list comes from the bridge; when it is empty, type a target from `hermes send --list` (`signal:<recipient>`, `telegram:<id>`, …).
   Sending is off by default. Text requires **Enable sending to this recipient**; file uploads require the separate **Enable text and file sending** action. Connect the media output to **Attachment**, not **Message**. A copy or template never inherits consent. Each run sends real, irreversible messages with no cache or automatic retry.
-- **Trigger nodes: schedule, RSS, webhook** — `Schedule` (`every 15m`, `daily 08:00`, `weekdays 07:30, 18:00`, `cron 0 8 * * 1-5`), `RSS feed` (one run per new item; the first check only remembers what is already there) and `Webhook` (a secret `http://127.0.0.1:8649/hook/…` URL; POST JSON or text) start the flow by themselves.
+- **Trigger nodes: schedule, RSS, webhook** — `Schedule` (`every 15m`, `daily 08:00`, `weekdays 07:30, 18:00`, `cron 0 8 * * 1-5`), `RSS feed` (one run per new item; the first check only remembers what is already there) and `Webhook` (a secret `http://127.0.0.1:8649/hook/…` URL; POST JSON or text) start the flow by themselves. `Folder watch` runs it for every new (or changed) file in a folder you picked (`*.md`, `*.png, *.jpg`; a file counts once it is fully written), `After flow` runs it when another flow succeeded, failed or finished and passes that flow's results along (chains stop after 5 flows in a row).
   They start the run directly, with no chat turn and no extra model cost, but only while Hermes (gateway or Desktop) is running; one process fires them, so nothing runs twice. Every trigger is **off** until you press **Activate** in its inspector; copies, templates and Build with Hermes never arm one. A schedule missed by more than 30 minutes is skipped, not caught up. Run by hand, a trigger outputs a sample (current time, newest feed item, last webhook body). The webhook only listens on this computer; change the port with the `webhook_port` setting or `ARACHNE_FLOW_WEBHOOK_PORT`.
 - **Same flow in UI, chat, and cron** — Every flow is a plain JSON file on disk.
   A pipeline you build on the canvas runs identically via `/flow run`, `flow_run` in chat, or an unattended cron schedule.
@@ -156,7 +156,7 @@ In chat or scheduled jobs, Hermes uses `flow_list`, `flow_get`, `flow_node_types
 
 | Type | What it is for | Example |
 |---|---|---|
-| **Schedule** / **RSS feed** / **Webhook** (`trigger.schedule`, `trigger.rss`, `trigger.webhook`) | Start the flow by itself on a timetable, for each new feed item, or on an HTTP POST (only while active) | Summarize every new post of a blog each morning |
+| **Schedule** / **RSS feed** / **Webhook** / **Folder watch** / **After flow** (`trigger.*`) | Start the flow by itself on a timetable, for each new feed item, on an HTTP POST, for each new file in a folder, or after another flow (only while active) | Tag every new note in your vault inbox |
 | **Text** (`input.text`) | Provide a constant text prompt, URL, or JSON snippet | Enter a research topic or system instruction |
 | **Number** (`input.number`) | Provide a numeric constant | Set a threshold or result count |
 | **JSON / Build object / Set field** (`input.json`, `json.build`, `json.set`) | Enter and transform bounded typed data without a model | Build structured per-item objects |

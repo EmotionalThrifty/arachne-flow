@@ -29,6 +29,16 @@ test('status lines: off, waiting for a runner, schedule + next + last start, web
   const hook = I.triggerLines({ id: 'n_2', type: 'trigger.webhook' }, { active: true, last_event_at: '2026-11-12T09:58:00+01:00' }, 7, NOW)
   assert.deepEqual(hook, ['Runs on every POST to its URL.', 'Last request: 2026-11-12 09:58'])
   assert.deepEqual(I.triggerLines(sched, null, null, NOW), ['Loading status…'])
+  const folder = I.triggerLines({ id: 'n_3', type: 'trigger.folder' }, { active: true, watching: 'C:\\Inbox' }, 7, NOW)
+  assert.deepEqual(folder, ['Watching: C:\\Inbox', 'Checks every 15 s; a file starts the flow once it is fully written.'])
+  const after = I.triggerLines({ id: 'n_4', type: 'trigger.flow' }, { active: true, source: 'Digest' }, 7, NOW)
+  assert.deepEqual(after, ['After: Digest'])
+})
+
+test('folder fields open a folder dialog and sign the pick as a folder', () => {
+  assert.match(SRC, /spec\.browse === 'file' \|\| spec\.browse === 'folder'/)
+  assert.match(SRC, /directories: true/)
+  assert.match(SRC, /folder: folder === true/)
 })
 
 test('trigger nodes get their own inspector section; Schedule with Hermes (agent cron turn) is gone', () => {

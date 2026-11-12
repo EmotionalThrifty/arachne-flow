@@ -2131,7 +2131,7 @@ function makeApi(ctx) {
     },
     fileNode: (flowId, node, thumb) => call('GET', `flows/${encodeURIComponent(flowId)}/file?${qs({ node, thumb })}`, undefined, 30000),
     // A file the user just chose with Browse…: the backend signs (flow, node, path) so a run accepts it (picks.py).
-    filePick: (flowId, nodeId, path) => call('POST', `flows/${encodeURIComponent(flowId)}/file-pick`, { node_id: nodeId, path, origin: 'ui' }),
+    filePick: (flowId, nodeId, path, folder = false) => call('POST', `flows/${encodeURIComponent(flowId)}/file-pick`, { node_id: nodeId, path, folder: folder === true, origin: 'ui' }),
     media: (runId, node, port, thumb, index) =>
       call('GET', `runs/${encodeURIComponent(runId)}/media?${qs({ node, port, thumb, index })}`, undefined, 60000),
     runValue: (runId, node, port, offset, limit, version, field = 'outputs') => {
@@ -5341,14 +5341,15 @@ function ParamField({ spec, value, source, types, onChange, onChangeMany, params
     control = h(ToolSelect, { types, value: prefixed, missing: value, onChange: (t) => onChange(t ? t.replace(/^tool:/, '') : null) })
   } else if (spec.kind === 'json') {
     control = h(JsonInputEditor, { value: value === undefined ? spec.default : value, onChange })
-  } else if (spec.browse === 'file') {
+  } else if (spec.browse === 'file' || spec.browse === 'folder') {
+    const folder = spec.browse === 'folder'
     control = h('div', { className: 'fc-browse' },
-      h('input', { className: 'fc-input', value: value === null || value === undefined ? '' : String(value), placeholder: placeholder || 'C:\\path\\to\\file.png', title: value ? String(value) : undefined,
+      h('input', { className: 'fc-input', value: value === null || value === undefined ? '' : String(value), placeholder: placeholder || (folder ? 'C:\\path\\to\\folder' : 'C:\\path\\to\\file.png'), title: value ? String(value) : undefined,
         onChange: (e) => onChange(e.target.value === '' ? null : e.target.value) }),
       onBrowse ? h('button', {
-        type: 'button', className: 'fc-btn', 'data-fc-browse': spec.name, title: 'Choose a file',
+        type: 'button', className: 'fc-btn', 'data-fc-browse': spec.name, title: folder ? 'Choose a folder' : 'Choose a file',
         onClick: async () => {
-          const picked = await onBrowse(params ? params.kind : 'auto')
+          const picked = await onBrowse(folder ? 'folder' : params ? params.kind : 'auto')
           if (picked) onChange(picked)
         }
       }, h(Icon, { name: 'folder-opened' }), 'Browse…') : null)
@@ -6383,8 +6384,11 @@ function triggerLines(node, info, runnerPid, now = Date.now()) {
   }
   if (!runnerPid) lines.push('Waiting for Hermes to pick it up (the gateway or Desktop backend fires triggers, within about a minute).')
   if (info.schedule) lines.push(`Schedule: ${info.schedule}`)
+  if (info.watching) lines.push(`Watching: ${info.watching}`)
+  if (info.source) lines.push(`After: ${info.source}`)
   if (info.next) lines.push(`Next: ${triggerWhen(info.next, now)}`)
   else if (node.type === 'trigger.webhook') lines.push('Runs on every POST to its URL.')
+  else if (node.type === 'trigger.folder') lines.push('Checks every 15 s; a file starts the flow once it is fully written.')
   if (info.last_fire) lines.push(`Last start: ${triggerWhen(info.last_fire, now)} · ${info.fires || 1} run${info.fires === 1 ? '' : 's'} so far`)
   if (info.last_event_at) lines.push(`Last request: ${info.last_event_at.replace('T', ' ').slice(0, 16)}`)
   if (info.note) lines.push(info.note)
@@ -7961,11 +7965,11 @@ function ArachneFlowPage({ ctx }) {
   // ---- files (G3): Browse… through ctx.os (one file per dialog), drops through the upload route
   // A picked file is signed for (flow, node, path) and kept in the node's picked_files: the backend runs a local file
   // outside the uploads folder only with that pick, and drops it whenever the agent edits the node.
-  const confirmPick = async (nodeId, path) => {
+  const confirmPick = async (nodeId, path, folder = false) => {
     const current = flowRef.current
     if (!current || !nodeId || !path) return
     try {
-      const res = await api.filePick(current.id, nodeId, path)
+      const res = await api.filePick(current.id, nodeId, path, folder)
       edit((f) => {
         const n = f.nodes.find((x) => x.id === nodeId)
         if (!n) return f
@@ -7979,12 +7983,14 @@ function ArachneFlowPage({ ctx }) {
     const os = ctx && ctx.os
     if (!os || typeof os.pickOpenPath !== 'function') return null
     let picked = null
+    const folder = kind === 'folder'   // Folder watch trigger: a folder dialog, signed like a file pick
     try {
-      picked = await os.pickOpenPath({ title: `Choose ${kind && kind !== 'auto' ? `an ${kind}` : 'a'} file`, filters: fileFilters(kind, typesRef.current.extKinds) })
+      picked = await os.pickOpenPath(folder ? { title: 'Choose a folder to watch', directories: true }
+        : { title: `Choose ${kind && kind !== 'auto' ? `an ${kind}` : 'a'} file`, filters: fileFilters(kind, typesRef.current.extKinds) })
     } catch {
       return null
     }
-    if (picked && nodeId) await confirmPick(nodeId, picked)
+    if (picked && nodeId) await confirmPick(nodeId, picked, folder)
     return picked
   }
   const addFileNodes = (files, x, y) => {
