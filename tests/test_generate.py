@@ -122,7 +122,7 @@ class GenerateTest(unittest.TestCase):
         self.assertEqual(self.api("GET", "flows")["flows"], [])
 
     def test_validation_error_is_repaired_but_never_saved_invalid(self):
-        invalid = answer([{"op": "add_node", "ref": "preview", "type": "output.preview"}], name=None)
+        invalid = answer([{"op": "add_node", "ref": "check", "type": "logic.if"}], name=None)
         self.ctx.llm = FakeLLM(invalid, invalid)
         code, detail = self.status_of({"prompt": "Make an incomplete LLM flow"})
         self.assertEqual(code, 400)
@@ -270,7 +270,7 @@ class GenerateTest(unittest.TestCase):
 
         user_msg = self.ctx.llm.calls[0]["messages"][1]["content"]
         cat_block = user_msg.split("AVAILABLE NODE TYPES (one compact JSON object per line)\n", 1)[1].split(
-            "\n\nCURRENT FLOW", 1)[0]
+            "\n\nCONNECTION GUIDE", 1)[0]
         rows = {json.loads(line)["type"]: json.loads(line) for line in cat_block.splitlines() if line.strip()}
         self.assertEqual(set(rows.keys()), set(expected_types.keys()))
         for name, row in rows.items():

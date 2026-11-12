@@ -58,7 +58,7 @@ class GenerateDeadlineTest(unittest.TestCase):
         messages = self.engine.generate.build_messages("Use weather_lookup for the forecast", None, types)
         content = messages[1]["content"]
         self.assertLess(len(content), 100000)
-        catalog = content.split("AVAILABLE NODE TYPES (one compact JSON object per line)\n", 1)[1].split("\n\nCURRENT FLOW", 1)[0]
+        catalog = content.split("AVAILABLE NODE TYPES (one compact JSON object per line)\n", 1)[1].split("\n\nCONNECTION GUIDE", 1)[0]
         rows = {json.loads(line)["type"] for line in catalog.splitlines() if line.strip()}
         self.assertIn("tool:weather_lookup", rows)
         self.assertIn("input.text", rows)
@@ -125,11 +125,17 @@ class GenerateDeadlineTest(unittest.TestCase):
         self.assertGreaterEqual(g.LLM_TIMEOUT_S, 600)        # a stall guard per call, not a UI deadline
         self.assertGreaterEqual(g.MAX_REPLY_TOKENS, 8192)
 
-    def test_builder_instructions_do_not_ship_the_whole_agent_audit(self):
+    def test_builder_gets_the_graph_contract_of_the_skill_but_not_its_tool_workflow(self):
         types = self.engine.nodes.types_by_name(self.env)
         messages = self.engine.generate.build_messages("Erstelle einen komplizierten Flow", None, types)
-        self.assertLess(len(messages[0]["content"]), 4500)
-        self.assertLess(sum(len(m["content"]) for m in messages), 24000)
+        system = messages[0]["content"]
+        for section in ("## Mandatory flow audit", "## Node types (always available)", "## Ops for `flow_apply`",
+                        "## Example 1"):
+            self.assertIn(section, system)
+        self.assertNotIn("## Debugging and repair", system)
+        self.assertNotIn("## Workflow", system)
+        self.assertLess(len(system), 24000)
+        self.assertLess(sum(len(m["content"]) for m in messages), 90000)
         self.assertIn("auto_layout", messages[0]["content"])
         self.assertIn("connect", messages[0]["content"])
 

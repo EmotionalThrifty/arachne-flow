@@ -26,7 +26,9 @@ MAX_PROMPT_CHARS = 12000
 # No deadline for the whole build: it may take as long as the model needs (thinking models, large flows). This
 # only guards ONE model call that never answers; the host API has no streaming, so it is a per-call stall limit.
 LLM_TIMEOUT_S = 900
-MAX_CATALOG_CHARS = 24000
+# Built-in and preset types always go in full (descriptions, port and param docs); MCP tools fill the rest by
+# relevance. Generous on purpose: a model that cannot read a node's ports and settings wires it wrongly.
+MAX_CATALOG_CHARS = 60000
 # Reasoning tokens count against this on some providers; a large flow's ops JSON needs room too.
 MAX_REPLY_TOKENS = 16384
 MAX_REPAIRS = 1
@@ -150,8 +152,10 @@ def _skill_rules() -> str:
     try:
         with open(SKILL_PATH, encoding="utf-8") as fh:
             text = fh.read()
-        start = text.index("## Ops for `flow_apply`")
-        end = text.index("## Example 1", start)
+        # The whole graph contract: audit, node types/ports/branches/loops, port typing, ops and two worked
+        # examples. Only the run/tool workflow sections are left out (generation never calls tools).
+        start = text.index("## Mandatory flow audit")
+        end = text.index("## Debugging and repair", start)
         audit = (
             "## Mandatory flow audit\n"
             "Check every node and every parameter for correct data shape, required inputs, limits and defaults. "
@@ -159,7 +163,13 @@ def _skill_rules() -> str:
             "Preserve working nodes and models. Use logic.merge to join exclusive branches, and collect loop "
             "results before leaving the loop. Include a useful final output. Never execute or expose secrets.\n\n"
         )
-        return audit + text[start:end].strip()
+        body = text[start:end]
+        for skip in ("## Scheduling a flow",):
+            if skip in body:
+                cut = body.index(skip)
+                nxt = body.find("\n## ", cut + 3)
+                body = body[:cut] + (body[nxt + 1:] if nxt >= 0 else "")
+        return audit + body.strip()
     except (OSError, ValueError):
         # Packaged installs should always contain the skill. Keep generation usable if a downstream
         # package omitted it, while the ops below still fully constrain the model.
@@ -206,7 +216,7 @@ def compact_catalog(types: dict, lean: bool = False) -> str:
             "type": name,
             "title": spec.get("title") or name,
             "category": spec.get("category") or "",
-            "description": (spec.get("description") or "")[:180],
+            "description": (spec.get("description") or "")[:600],
             "inputs": inputs,
             "outputs": [_port(p) for p in spec.get("outputs", [])],
             "params": [_param(p, port_descs) for p in spec.get("params", [])],
@@ -222,15 +232,15 @@ def compact_catalog(types: dict, lean: bool = False) -> str:
         for line in rows:
             row = json.loads(line)
             row.pop("category", None)
-            row["description"] = row["description"][:120]
             raw_tool = row["type"].startswith("tool:")
+            if not raw_tool:
+                reduced.append(line)   # built-ins and presets keep every description: the model must know them
+                continue
+            row["description"] = row["description"][:240]
             for field in ("inputs", "outputs", "params"):
                 for item in row[field]:
                     if "description" in item:
-                        if raw_tool:
-                            item["description"] = item["description"][:120]
-                        else:
-                            item.pop("description")
+                        item["description"] = item["description"][:160]
                     default = item.get("default")
                     if isinstance(default, (str, list, dict)) and len(json.dumps(default)) > 180:
                         item.pop("default")  # the executor still applies the full schema's default
@@ -276,6 +286,86 @@ def generation_catalog(prompt: str, flow: dict | None, types: dict) -> tuple[str
     )
 
 
+def _short(value, limit: int = 140) -> str:
+    text = value if isinstance(value, str) else json.dumps(value, ensure_ascii=False, default=str)
+    text = text.replace("\r", "").replace("\n", "\\n")
+    return text if len(text) <= limit else text[:limit - 1] + "…"
+
+
+def describe_flow(flow: dict | None, types: dict) -> str:
+    """The current graph as the model should read it: per node its type, every input (wired from where, set as a
+    constant, or MISSING), every output (wired to where, or unused) and its settings."""
+    if not flow or not flow.get("nodes"):
+        return "(empty: create a new flow)"
+    nodes = {n.get("id"): n for n in flow.get("nodes", []) if isinstance(n, dict)}
+
+    def label(nid):
+        n = nodes.get(nid) or {}
+        return f'{nid} "{n.get("title") or n.get("type")}"'
+
+    into, out_of = {}, {}
+    for e in flow.get("edges", []):
+        try:
+            src, dst = e["from"], e["to"]
+        except (KeyError, TypeError):
+            continue
+        into.setdefault((dst["node"], dst["port"]), []).append(f'{label(src["node"])}.{src["port"]}')
+        out_of.setdefault((src["node"], src["port"]), []).append(f'{label(dst["node"])}.{dst["port"]}')
+    lines = []
+    for nid, n in nodes.items():
+        ins, outs = G.node_ports(n, types)
+        params = n.get("params") or {}
+        lines.append(f'{label(nid)} type={n.get("type")}')
+        if ins is None:
+            lines.append("  (unknown type)")
+            continue
+        for p in ins:
+            name = p.get("name")
+            kind = p.get("type", "any") + (", required" if p.get("required") else "") + \
+                (", multiple" if p.get("multiple") else "")
+            wired = into.get((nid, name))
+            if wired:
+                state = "<- " + ", ".join(wired)
+            elif name in params and params[name] not in (None, "", []):
+                state = "= constant " + _short(params[name], 80)
+            else:
+                state = "MISSING" if p.get("required") else "(empty)"
+            lines.append(f"  in  {name} [{kind}] {state}")
+        for p in outs:
+            name = p.get("name")
+            to = out_of.get((nid, name))
+            lines.append(f'  out {name} [{p.get("type", "any")}] ' + ("-> " + ", ".join(to) if to else "(unused)"))
+        port_names = {p.get("name") for p in ins}
+        shown = {k: v for k, v in params.items() if k not in port_names and v not in (None, "", [], {})}
+        if shown:
+            lines.append("  settings: " + "; ".join(f"{k}={_short(v)}" for k, v in shown.items()))
+    return "\n".join(lines)
+
+
+def connection_guide(types: dict) -> str:
+    """Which node types can consume each data type, derived from the real catalog and the real type rules."""
+    from . import types as T
+    kinds = ("text", "number", "json", "image", "audio", "video", "model3d", "file")
+    lines = []
+    for kind in kinds:
+        takers = []
+        media = kind not in ("text", "number", "json")
+        for name in sorted(types):
+            if name.startswith("tool:") and not media:
+                continue   # nearly every tool takes text; listing them would drown the useful consumers
+            for p in types[name].get("inputs", []):
+                ptype = p.get("type", "any")
+                if ptype != "any" and T.compatible(kind, ptype):
+                    takers.append(f"{name}.{p.get('name')}")
+                    break
+        generic = "any-typed inputs (Merge, If, json.pick, …)" + ("; tool text params" if not media else "")
+        lines.append(f"{kind} -> " + (", ".join(takers[:40]) + (" …" if len(takers) > 40 else "") if takers else "nothing typed") +
+                     f"; plus {generic}")
+    return ("Valid wires follow the port types: same type, either side any, number/boolean/json -> text, "
+            "media -> file. llm.complete and text.template inputs are TEXT only (an LLM cannot read an image, "
+            "video or 3D model; use preset.vision for images). Consumers per output type:\n" + "\n".join(lines))
+
+
 def build_messages(prompt: str, flow: dict | None, types: dict, known_issues=None) -> list:
     catalog, catalog_index = generation_catalog(prompt, flow, types)
     system = (
@@ -289,12 +379,14 @@ def build_messages(prompt: str, flow: dict | None, types: dict, known_issues=Non
         "Return compact JSON without indentation, prose or notes. Every operation MUST have an 'op' key. "
         "An add_node uses flat type/title/params fields, NEVER a nested node object. "
         "Example: {\"ops\":[{\"op\":\"add_node\",\"ref\":\"a\",\"type\":\"input.text\",\"params\":{\"value\":\"Hello\"}},"
-        "{\"op\":\"add_node\",\"ref\":\"b\",\"type\":\"output.preview\"},"
-        "{\"op\":\"connect\",\"from\":\"a.text\",\"to\":\"b.value\"},{\"op\":\"auto_layout\"}]}. "
-        "Every node already shows its own result on the canvas. Add output.preview only at the END of a "
-        "branch (a final result), never in the middle: do not route data through a Preview into later nodes and "
-        "do not hang a Preview off a step whose output continues elsewhere, unless the user explicitly asks "
-        "for intermediate previews. "
+        "{\"op\":\"add_node\",\"ref\":\"b\",\"type\":\"llm.complete\",\"params\":{\"template\":\"Translate to German: {{text}}\"}},"
+        "{\"op\":\"connect\",\"from\":\"a.text\",\"to\":\"b.text\"},{\"op\":\"auto_layout\"}]}. "
+        "Every node already shows its own result on the canvas, so do NOT add output.preview nodes unless the "
+        "user explicitly asks for a preview/display node; never route data through a Preview. "
+        "Read CURRENT WIRING before editing: it lists every input (wired, constant or MISSING) and every output "
+        "(where it goes or unused). Use each product where the request needs it; when no available node can "
+        "consume a product (see CONNECTION GUIDE), do not fake the link with text or a preview, and say so in "
+        "set_meta.description. Use exact port names from the catalog or CURRENT WIRING. "
         "For a vague request, build a useful "
         "6-8 node example with at most 24 operations, not an exhaustive showcase. "
         "Satisfy required inputs with a connection or a same-named constant in params. "
@@ -309,6 +401,8 @@ def build_messages(prompt: str, flow: dict | None, types: dict, known_issues=Non
                   json.dumps(known, ensure_ascii=False, separators=(",", ":"))) if known else ""
     user = (
         "AVAILABLE NODE TYPES (one compact JSON object per line)\n" + catalog +
+        "\n\nCONNECTION GUIDE\n" + connection_guide(types) +
+        "\n\nCURRENT WIRING (readable view of the flow below)\n" + describe_flow(flow, types) +
         "\n\nCURRENT FLOW (null means create a new flow)\n" +
         json.dumps(flow, ensure_ascii=False, separators=(",", ":")) + known_text + catalog_index +
         "\n\nUSER REQUEST\n" + prompt
@@ -341,8 +435,8 @@ PREVIEW = "output.preview"
 # Words that ask for previews between steps ("Zwischenergebnisse", "after each step", ...). Without one, newly added
 # intermediate previews are removed: every node already shows its own output, so they only add clutter.
 _INTERMEDIATE_ASK = re.compile(
-    r"zwischen|intermediate|in[- ]between|mitten|each step|every step|after each|jede[nmrs]? (schritt|stufe|node)|"
-    r"nach jede[mnr]|step[- ]by[- ]step|debug", re.IGNORECASE)
+    r"preview|vorschau|anzeige|display|zwischen|intermediate|in[- ]between|mitten|each step|every step|after each|"
+    r"jede[nmrs]? (schritt|stufe|node)|nach jede[mnr]|step[- ]by[- ]step|debug", re.IGNORECASE)
 
 
 def wants_intermediate_previews(prompt: str) -> bool:
@@ -350,11 +444,11 @@ def wants_intermediate_previews(prompt: str) -> bool:
 
 
 def drop_intermediate_previews(base, candidate: dict, types: dict, results=None, prompt: str = ""):
-    """Remove Preview nodes this build added mid-flow (unless the prompt asks for them).
+    """Remove Preview nodes this build added, unless the prompt asks for previews.
 
-    Mid-flow means: the Preview's own output feeds further nodes (a pass-through; those nodes are rewired to the
-    Preview's source), or its source also feeds a non-output node (a side branch). Previews at the end of a branch,
-    and every Preview the flow had before, stay. Returns (flow, results)."""
+    Every node shows its own result, so a Preview only repeats it. A pass-through Preview (its output feeds further
+    nodes) is bridged: those nodes are rewired to the Preview's source. Previews the flow already had stay.
+    Returns (flow, results)."""
     if wants_intermediate_previews(prompt):
         return candidate, results
     old = {n.get("id") for n in (base or {}).get("nodes", [])}
@@ -375,11 +469,6 @@ def drop_intermediate_previews(base, candidate: dict, types: dict, results=None,
             rewire = [{"op": "connect", "from": f"{source['node']}.{source['port']}",
                        "to": f"{e['to']['node']}.{e['to']['port']}"} for e in outgoing]
         else:
-            if source is None:
-                continue
-            siblings = [e for e in edges if e["from"]["node"] == source["node"] and e["to"]["node"] != nid]
-            if not any(not str(nodes.get(e["to"]["node"], {}).get("type", "")).startswith("output.") for e in siblings):
-                continue   # end of a branch: a real final result
             rewire = []
         step = [{"op": "remove_node", "node": nid}] + rewire
         try:

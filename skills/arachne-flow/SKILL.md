@@ -47,9 +47,10 @@ not call the opt-in action on the user's behalf. Building and static validation 
    now. Read exact ports, parameter defaults, descriptions, options, limits, and model metadata before
    writing ops. Prefer `preset.*` over raw `tool:*` nodes: presets have typed media ports and map fields.
 3. **Design the whole graph.** Map every input to the final output, including extraction, prompts,
-   branch joins, loop collectors, and a useful preview or terminal node at the end. Every node already shows
-   its own result, so never put `output.preview` mid-flow (as a pass-through or a side branch of a step that
-   continues) unless the user explicitly asks for intermediate previews. Perform the **Mandatory flow
+   branch joins, loop collectors, and a useful last step. Every node already shows its own result on the
+   canvas, so do **not** add `output.preview` unless the user explicitly asks for a preview/display node, and
+   never route data through one. Feed each product (image, mesh, video, text) into the step that needs it;
+   if no available node can consume it, say so instead of faking the link. Perform the **Mandatory flow
    audit** below for every node and every parameter, not only nodes you added or changed.
 4. **Apply atomically.** Build the complete graph in ONE `flow_apply` call. Give new nodes unique refs,
    connect with `"ref.port"`, set dynamic templates before their connections, and finish with
@@ -102,8 +103,8 @@ setting, model compatibility, runtime behavior, privacy, and cost.
 
 - Confirm the exact available type is the right capability and no nearly duplicate node is needed.
   Give each node a specific title and purpose. Trace its outputs to a useful destination; remove orphan
-  nodes and accidental dead ends. Ensure at least one useful final output or preview; previews belong at
-  the end of a branch only, unless intermediate previews were explicitly requested.
+  nodes and accidental dead ends. The last step is the result (it shows its own output); add a Preview only
+  when the user asks for one.
 - Satisfy every required input by a compatible upstream connection or a deliberate same-named constant
   in `params`. A connection overrides a single-value constant. For `media_list` inputs, direct files in
   `params.image` are **prepended** to wired images instead: clear that constant when wiring unless the
@@ -195,7 +196,7 @@ setting, model compatibility, runtime behavior, privacy, and cost.
 | `logic.merge` | in `value` (several wires), out `value` | — (first wire whose branch ran wins, in wire order) |
 | `logic.foreach` | in `list`, out `item`; `index` (1, 2, …) is available **only inside the loop body** | `limit` (empty = plugin setting `max_items`, default 100) |
 | `logic.collect` | in `value`, out `list` | — (one entry per item, item order; items that took another If branch are left out) |
-| `output.preview` | in `value` | — |
+| `output.preview` | in `value`, out `value` | — (repeats a value on the canvas; only on explicit request) |
 | `output.send_message` | in `message` / `attachment`, out `result` / `text` | `target` (fixed recipient), optional `message`, `timeout_s`; the user must explicitly enable file sending before an `attachment` can upload. Only supported files produced in the current run are accepted. |
 | `note` | — | `text` (comment on the canvas) |
 
@@ -255,10 +256,8 @@ and compact text without executing it.
    "params": {"system": "You write vivid, concrete prompts for image models. Answer with the prompt only.",
               "template": "Write an image prompt for: {{idea}}"}},
   {"op": "add_node", "ref": "image", "type": "preset.text_to_image", "title": "Image"},
-  {"op": "add_node", "ref": "show", "type": "output.preview", "title": "Result"},
   {"op": "connect", "from": "idea.text", "to": "prompt.idea"},
   {"op": "connect", "from": "prompt.text", "to": "image.prompt"},
-  {"op": "connect", "from": "image.image", "to": "show.value"},
   {"op": "auto_layout"}
 ]}
 ```
@@ -274,11 +273,9 @@ Building and validating this example is free. Run a paid image generation only w
   {"op": "add_node", "ref": "search", "type": "preset.web_search", "title": "Search", "params": {"limit": 5}},
   {"op": "add_node", "ref": "digest", "type": "llm.complete", "title": "Digest",
    "params": {"template": "Summarise the key findings about {{topic}} in 5 bullet points with sources.\n\n{{results}}"}},
-  {"op": "add_node", "ref": "show", "type": "output.preview", "title": "Digest"},
   {"op": "connect", "from": "topic.text", "to": "search.query"},
   {"op": "connect", "from": "topic.text", "to": "digest.topic"},
   {"op": "connect", "from": "search.text", "to": "digest.results"},
-  {"op": "connect", "from": "digest.text", "to": "show.value"},
   {"op": "auto_layout"}
 ]}
 ```
