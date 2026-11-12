@@ -291,6 +291,10 @@ def build_messages(prompt: str, flow: dict | None, types: dict, known_issues=Non
         "Example: {\"ops\":[{\"op\":\"add_node\",\"ref\":\"a\",\"type\":\"input.text\",\"params\":{\"value\":\"Hello\"}},"
         "{\"op\":\"add_node\",\"ref\":\"b\",\"type\":\"output.preview\"},"
         "{\"op\":\"connect\",\"from\":\"a.text\",\"to\":\"b.value\"},{\"op\":\"auto_layout\"}]}. "
+        "Every node already shows its own result on the canvas. Add output.preview only at the END of a "
+        "branch (a final result), never in the middle: do not route data through a Preview into later nodes and "
+        "do not hang a Preview off a step whose output continues elsewhere, unless the user explicitly asks "
+        "for intermediate previews. "
         "For a vague request, build a useful "
         "6-8 node example with at most 24 operations, not an exhaustive showcase. "
         "Satisfy required inputs with a connection or a same-named constant in params. "
@@ -333,7 +337,66 @@ def parse_answer(raw: str) -> dict:
     raise CandidateError("The model did not return valid JSON with an 'ops' list.")
 
 
-def _candidate(base: dict | None, proposed: dict, types: dict, fallback_name: str, base_errors=None):
+PREVIEW = "output.preview"
+# Words that ask for previews between steps ("Zwischenergebnisse", "after each step", ...). Without one, newly added
+# intermediate previews are removed: every node already shows its own output, so they only add clutter.
+_INTERMEDIATE_ASK = re.compile(
+    r"zwischen|intermediate|in[- ]between|mitten|each step|every step|after each|jede[nmrs]? (schritt|stufe|node)|"
+    r"nach jede[mnr]|step[- ]by[- ]step|debug", re.IGNORECASE)
+
+
+def wants_intermediate_previews(prompt: str) -> bool:
+    return bool(_INTERMEDIATE_ASK.search(prompt or ""))
+
+
+def drop_intermediate_previews(base, candidate: dict, types: dict, results=None, prompt: str = ""):
+    """Remove Preview nodes this build added mid-flow (unless the prompt asks for them).
+
+    Mid-flow means: the Preview's own output feeds further nodes (a pass-through; those nodes are rewired to the
+    Preview's source), or its source also feeds a non-output node (a side branch). Previews at the end of a branch,
+    and every Preview the flow had before, stay. Returns (flow, results)."""
+    if wants_intermediate_previews(prompt):
+        return candidate, results
+    old = {n.get("id") for n in (base or {}).get("nodes", [])}
+    nodes = {n["id"]: n for n in candidate.get("nodes", [])}
+    added = [nid for nid, n in nodes.items() if n.get("type") == PREVIEW and nid not in old]
+    if not added:
+        return candidate, results
+    ops = []
+    flow = candidate
+    for nid in added:
+        edges = flow.get("edges", [])
+        incoming = [e for e in edges if e["to"]["node"] == nid]
+        outgoing = [e for e in edges if e["from"]["node"] == nid]
+        source = incoming[0]["from"] if len(incoming) == 1 else None
+        if outgoing:
+            if source is None:
+                continue
+            rewire = [{"op": "connect", "from": f"{source['node']}.{source['port']}",
+                       "to": f"{e['to']['node']}.{e['to']['port']}"} for e in outgoing]
+        else:
+            if source is None:
+                continue
+            siblings = [e for e in edges if e["from"]["node"] == source["node"] and e["to"]["node"] != nid]
+            if not any(not str(nodes.get(e["to"]["node"], {}).get("type", "")).startswith("output.") for e in siblings):
+                continue   # end of a branch: a real final result
+            rewire = []
+        step = [{"op": "remove_node", "node": nid}] + rewire
+        try:
+            flow, _ = G.apply_ops(flow, step, types)
+        except (G.OpError, ValueError, TypeError, KeyError):
+            continue   # keep the model's graph rather than break it
+        ops.extend(step)
+    if not ops:
+        return candidate, results
+    try:
+        flow, _ = G.apply_ops(flow, [{"op": "auto_layout"}], types)
+    except (G.OpError, ValueError, TypeError, KeyError):
+        pass
+    return flow, results
+
+
+def _candidate(base: dict | None, proposed: dict, types: dict, fallback_name: str, base_errors=None, prompt: str = ""):
     if not proposed["ops"]:
         raise CandidateError("the answer contains no operations")
     flow = G.new_flow((proposed.get("name") or fallback_name).strip()[:80] or "Generated flow") \
@@ -344,6 +407,7 @@ def _candidate(base: dict | None, proposed: dict, types: dict, fallback_name: st
         raise CandidateError(f"op {exc.index}: {exc.message}") from None
     except (ValueError, TypeError, KeyError) as exc:
         raise CandidateError(str(exc)) from None
+    candidate, results = drop_intermediate_previews(base, candidate, types, results, prompt)
     issues = G.validate(candidate, types)
     known = {(i.get("node"), i.get("port"), i.get("message")) for i in (base_errors or [])}
     new_errors = [i for i in issues if i.get("level") == "error" and
@@ -426,7 +490,8 @@ async def _generate(env, job: dict, progress=None) -> dict:
     for attempt in range(MAX_REPAIRS + 1):
         try:
             proposed = parse_answer(raw)
-            candidate, _results = _candidate(before, proposed, types, fallback_name, base_errors=base_errors)
+            candidate, _results = _candidate(before, proposed, types, fallback_name, base_errors=base_errors,
+                                             prompt=prompt)
             break
         except CandidateError as exc:
             err_text = str(exc)

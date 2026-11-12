@@ -47,7 +47,9 @@ not call the opt-in action on the user's behalf. Building and static validation 
    now. Read exact ports, parameter defaults, descriptions, options, limits, and model metadata before
    writing ops. Prefer `preset.*` over raw `tool:*` nodes: presets have typed media ports and map fields.
 3. **Design the whole graph.** Map every input to the final output, including extraction, prompts,
-   branch joins, loop collectors, and a useful preview or terminal node. Perform the **Mandatory flow
+   branch joins, loop collectors, and a useful preview or terminal node at the end. Every node already shows
+   its own result, so never put `output.preview` mid-flow (as a pass-through or a side branch of a step that
+   continues) unless the user explicitly asks for intermediate previews. Perform the **Mandatory flow
    audit** below for every node and every parameter, not only nodes you added or changed.
 4. **Apply atomically.** Build the complete graph in ONE `flow_apply` call. Give new nodes unique refs,
    connect with `"ref.port"`, set dynamic templates before their connections, and finish with
@@ -100,7 +102,8 @@ setting, model compatibility, runtime behavior, privacy, and cost.
 
 - Confirm the exact available type is the right capability and no nearly duplicate node is needed.
   Give each node a specific title and purpose. Trace its outputs to a useful destination; remove orphan
-  nodes and accidental dead ends. Ensure at least one useful final output or preview.
+  nodes and accidental dead ends. Ensure at least one useful final output or preview; previews belong at
+  the end of a branch only, unless intermediate previews were explicitly requested.
 - Satisfy every required input by a compatible upstream connection or a deliberate same-named constant
   in `params`. A connection overrides a single-value constant. For `media_list` inputs, direct files in
   `params.image` are **prepended** to wired images instead: clear that constant when wiring unless the
