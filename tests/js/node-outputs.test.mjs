@@ -180,7 +180,7 @@ test('a node without a preview renders the exact structure it had before', () =>
   // the card's own children, in order: head, ports (rows) and nothing after them
   const row = 'div.fc-port-row(C.fc-tt-bubble(div.fc-port.fc-port-out(span.fc-port-label(#),span.fc-dot)))'
   assert.equal(sig,
-    'div.fc-node(div.fc-node-head(span.fc-node-icon(Icon),span.fc-node-title(#),StatusBadge),' +
+    'div.fc-node(div.fc-node-head(span.fc-node-icon(Icon),span.fc-node-titles(span.fc-node-title(#),span.fc-node-sub(#)),StatusBadge),' +
     `div.fc-ports(${Array(6).fill(row).join(',')}))`)
 })
 

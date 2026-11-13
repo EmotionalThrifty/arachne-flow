@@ -691,8 +691,30 @@ def invalidate(env) -> None:
         env.state.pop("node_types_cache", None)
 
 
+class TypeIndex(dict):
+    """``{type: spec}``; a ready-made node pinned to a provider this setup lacks (``preset.x~server``) falls back
+    to the same step on the best available provider, so shared flows and templates run anywhere."""
+
+    def _fallback(self, key):
+        if isinstance(key, str) and key.startswith("preset.") and "~" in key:
+            return dict.get(self, key.split("~", 1)[0])
+        return None
+
+    def get(self, key, default=None):
+        return dict.get(self, key) or self._fallback(key) or default
+
+    def __contains__(self, key):
+        return dict.__contains__(self, key) or self._fallback(key) is not None
+
+    def __missing__(self, key):
+        found = self._fallback(key)
+        if found is None:
+            raise KeyError(key)
+        return found
+
+
 def types_by_name(env, tools=None) -> dict:
-    return {spec["type"]: spec for spec in list_node_types(env, tools=tools)}
+    return TypeIndex((spec["type"], spec) for spec in list_node_types(env, tools=tools))
 
 
 def get_type(env, type_name: str, tools=None):

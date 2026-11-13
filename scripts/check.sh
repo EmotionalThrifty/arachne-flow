@@ -20,6 +20,9 @@ step "python unit tests"
 bash scripts/hpy scripts/run_tests.py 2>&1 | tail -15
 [ "${PIPESTATUS[0]}" -eq 0 ] || fail=1
 
+step "desktop/plugin.js is the build of desktop/src"
+node scripts/build_desktop.mjs --check || fail=1
+
 step "desktop/plugin.js syntax"
 cp desktop/plugin.js "$CACHE_DIR/plugin.check.mjs" && node --check "$(to_host_path "$CACHE_DIR/plugin.check.mjs")" && echo ok || fail=1
 

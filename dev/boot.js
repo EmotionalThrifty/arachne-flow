@@ -462,6 +462,32 @@ if (params.get('triggers')) {
     out.notice = document.querySelector('.fc-notice')?.textContent || ''
     document.querySelector('.fc-menu-toggle')?.click(); await sleep(200)
     out.menuText = document.querySelector('[role="menu"]')?.textContent || ''
+    out.menuTabs = [...document.querySelectorAll('[data-fc-menu-tab]')].map((el) => el.dataset.fcMenuTab)
+    out.searchFocused = document.activeElement === document.querySelector('[data-fc-menu-search]')
+    const search = document.querySelector('[data-fc-menu-search]')
+    if (search) {
+      const set = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set
+      set.call(search, 'blog'); search.dispatchEvent(new Event('input', { bubbles: true })); await sleep(200)
+      out.searchHits = [...document.querySelectorAll('.fc-flows-menu .fc-menu-scroll .fc-menu-name')].map((el) => el.textContent)
+      set.call(search, ''); search.dispatchEvent(new Event('input', { bubbles: true })); await sleep(100)
+    }
+    document.querySelector('.fc-menu-toggle')?.click(); await sleep(150)
+    // After flow trigger: its Flow field is a searchable flow list
+    const after = [...document.querySelectorAll('[data-fc-node]')].find((n) => n.querySelector('.fc-node-title')?.textContent === 'After')
+    if (after) {
+      after.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, button: 0, pointerId: 2, isPrimary: true }))
+      after.dispatchEvent(new PointerEvent('pointerup', { bubbles: true, button: 0, pointerId: 2, isPrimary: true }))
+      after.click()
+      const btn = await waitFor(() => document.querySelector('[data-fc-flow-picker] button'))
+      btn?.click()
+      await waitFor(() => document.querySelector('[data-fc-flow-option]'))
+      out.flowOptions = [...document.querySelectorAll('[data-fc-flow-option]')].map((el) => el.textContent)
+      const pop = document.querySelector('[data-fc-flow-picker] .fc-model-pop')?.getBoundingClientRect()
+      const inspector = document.querySelector('.fc-inspector')?.getBoundingClientRect()
+      out.pickerFits = !!(pop && inspector && pop.top >= inspector.top && pop.bottom <= inspector.bottom + 1)
+      document.querySelector('[data-fc-flow-option]')?.click(); await sleep(300)
+      out.flowChosen = document.querySelector('[data-fc-flow-picker] button')?.textContent || ''
+    }
     out.paletteTriggers = [...document.querySelectorAll('.fc-palette, [data-fc-palette]')].some((el) => el.textContent.includes('Triggers'))
   })().catch((err) => diag.errors.push('triggers: ' + (err && err.message || err)))
 }
@@ -517,7 +543,8 @@ if (params.get('inline_media')) {
     const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms))
     const waitFor = async (fn, label) => {
       for (let i = 0; i < 100; i++) { const v = fn(); if (v) return v; await sleep(100) }
-      throw new Error(`inline media: timed out waiting for ${label}`)
+      const players = [...document.querySelectorAll('.fc-mini-player')].map((e) => `${e.dataset.fcInlineMedia}=${(e.textContent || e.firstElementChild?.tagName || '').slice(0, 40)}@${Math.round(e.getBoundingClientRect().top)}`)
+      throw new Error(`inline media: timed out waiting for ${label} (players: ${players.join(', ') || 'none'}; view ${innerWidth}x${innerHeight})`)
     }
     const video = await waitFor(() => document.querySelector('.fc-node video'), 'video')
     await waitFor(() => video.readyState >= 2, 'decoded video')
@@ -821,7 +848,7 @@ if (params.get('palette')) {
     steps.tipGone = !document.querySelector('[data-fc-typetip]')
     await type('model3d')
     steps.port = { items: visible(), active: pal().querySelector('.fc-item.active')?.dataset.fcType || null, foldDisabled: fold().disabled }
-    await type('polls')
+    await type('waits for')
     steps.desc = { items: visible() }
     await type('image')
     steps.image = { active: pal().querySelector('.fc-item.active .fc-item-name')?.textContent || null, items: visible().length }
@@ -986,8 +1013,19 @@ if (params.get('generate')) {
     const edit = await openHeader()
     if (!edit) throw new Error('header did not open the generate dialog')
     const editPicker = $('[data-fc-generate-dialog] .fc-model-btn')
+    const modalBefore = $('[data-fc-generate-dialog] .fc-generate-modal')?.getBoundingClientRect()
     editPicker.click()
     const picked = await until(() => $('[data-fc-generate-dialog] [data-fc-model="z-ai/glm-5.3-flash"]'))
+    await sleep(50)
+    // The list floats over the dialog (never resizes it) and stays inside the visible Arachne page.
+    out.pickerFits = (() => {
+      const p = $('[data-fc-generate-dialog] .fc-model-pop')?.getBoundingClientRect()
+      const m = $('[data-fc-generate-dialog] .fc-generate-modal')?.getBoundingClientRect()
+      const b = ($('[data-fc-generate-dialog] .fc-modal-scrim') || $('.fc-modal-scrim') || $('.fc-root'))?.getBoundingClientRect()
+      const same = !!modalBefore && !!m && Math.abs(m.height - modalBefore.height) <= 1
+      return !!p && !!b && same && p.top >= Math.max(0, b.top) - 1 && p.bottom <= Math.min(innerHeight, b.bottom) + 1 &&
+        p.left >= b.left - 1 && p.right <= b.right + 1
+    })()
     picked?.click()
     setValue(edit, 'Add a note')
     $('[data-fc-generate-dialog] [data-fc-generate-submit]').click()
@@ -1071,7 +1109,10 @@ if (params.get('templates')) {
   }
   const openMenu = async () => {
     if (!$('.fc-menu')) $('.fc-menu-toggle').click()
-    return until(() => $('.fc-menu'))
+    const menu = await until(() => $('.fc-menu'))
+    const tab = await until(() => $('[data-fc-menu-tab="templates"]'))
+    if (tab && tab.getAttribute('aria-pressed') !== 'true') { tab.click(); await sleep(100) }
+    return menu
   }
   const menuState = () => ({
     labels: [...document.querySelectorAll('.fc-menu .fc-menu-label')].map((e) => e.textContent),
@@ -1243,7 +1284,7 @@ if (params.get('model_settings')) {
     out.pills = [...document.querySelectorAll('[data-fc-node]')].filter((el) => el.querySelector('.fc-node-cost')).map((el) => {
       const pill = el.querySelector('.fc-node-cost')
       return { title: el.querySelector('.fc-node-title').textContent, pill: box(pill), name: box(el.querySelector('.fc-node-title')),
-        head: box(el.querySelector('.fc-node-head')), font: getComputedStyle(pill).fontSize, color: getComputedStyle(pill).color,
+        head: box(el.querySelector('.fc-node-foot')), font: getComputedStyle(pill).fontSize, color: getComputedStyle(pill).color,
         clipped: pill.scrollWidth > pill.clientWidth }
     })
     if (params.get('model_settings') === 'shot') return
@@ -1301,4 +1342,14 @@ if (params.get('model_settings')) {
     out.meshy.after = { geometry: xf('geometry_resolution')?.querySelector('select')?.value || null }
     if (params.get('model_settings') === 'shot3d') return
   })().catch((err) => diag.errors.push('model_settings: ' + (err && err.message || err)))
+}
+
+if (params.get('wire') === 'check') {
+  import('./wire-probe.js').then(({ probeWire }) => probeWire(ctx, diag))
+    .catch(err => diag.errors.push('wire: ' + (err && err.message || err)))
+}
+
+if (params.get('tidy') === 'check') {
+  import('./tidy-probe.js').then(({ probeTidy }) => probeTidy(ctx, diag))
+    .catch(err => diag.errors.push('tidy: ' + (err && err.message || err)))
 }

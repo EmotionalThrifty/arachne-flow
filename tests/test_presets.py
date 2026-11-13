@@ -23,8 +23,9 @@ TOOLS = [
                             "aspect_ratio": {"type": "string", "enum": ["square", "portrait"]}}, ["prompt"]),
     tool(NANO_IMAGE, {"prompt": {"type": "string"}}, ["prompt"]),
     tool(NANO_3D, {"prompt": {"type": "string"}, "imageUrl": {"type": "string"},
-                   "imageDataUrl": {"type": "string"},
-                   "operation": {"type": "string", "default": "submit_and_poll"},
+                   "imageDataUrl": {"type": "string"}, "images": {"type": "array", "items": {"type": "string"}},
+                   "operation": {"type": "string", "enum": ["submit", "status", "poll", "submit_and_poll"],
+                                 "default": "submit_and_poll"},
                    "model": {"type": "string", "default": "fast"}}),
     tool("vision_analyze", {"image_url": {"type": "string"}, "question": {"type": "string"}},
          ["image_url", "question"]),
@@ -115,8 +116,9 @@ class PresetTest(unittest.TestCase):
         listed = TOOLS + [tool("mcp__nanogpt__nanogpt_list_3d_models", {})]
         paired = specs(listed)["preset.text_to_3d"]
         model = {p["name"]: p for p in paired["params"]}["model"]
-        self.assertEqual(model["default"], "wavespeed-ai/hunyuan-3d-v3.1-rapid")
-        self.assertEqual(paired["cost"], "~$0.27 per model with the default model")
+        # provider-independent: no curated default; a blank model runs with the cheapest listed one
+        self.assertEqual((model.get("default"), model["auto"], model["required"]), ("fast", "model_auto", False))
+        self.assertEqual(paired["cost"], "Paid per model; the price depends on the model")
 
     def test_text_to_image_returns_image_media(self):
         path = self.file("source.png")
@@ -211,7 +213,7 @@ class PresetTest(unittest.TestCase):
     def test_several_views_to_a_single_image_model_send_the_first_view(self):
         # Live 07.11.: hunyuan-3d-v3.1-rapid takes one image; `images` was ignored -> "A prompt is required".
         rows = [{"id": "wavespeed-ai/hunyuan-3d-v3.1-rapid", "capabilities": {"image_to_3d": True, "text_to_3d": True}}]
-        args, lines = self._multi_view_run(rows)
+        args, lines = self._multi_view_run(rows, model="wavespeed-ai/hunyuan-3d-v3.1-rapid")
         self.assertEqual(args.get("imageUrl"), "https://example.com/front.png")
         self.assertNotIn("images", args)
         self.assertTrue(any("one image" in l and "4" in l for l in lines), lines)
@@ -240,7 +242,8 @@ class PresetTest(unittest.TestCase):
 # them (`mcp_tool_handlers._render_call_tool_result`: text block -> "result", plus "structuredContent").
 # `status` is the whole /api/video/status JSON ({requestId, data: {status, output}, model}) or null.
 NANO_VIDEO = "mcp__nanogpt__nanogpt_video_generate"
-VIDEO_TOOLS = TOOLS + [tool(NANO_VIDEO, {"prompt": {"type": "string"}, "operation": {"type": "string"},
+VIDEO_TOOLS = TOOLS + [tool(NANO_VIDEO, {"prompt": {"type": "string"},
+                                         "operation": {"type": "string", "enum": ["submit", "poll", "status"]},
                                          "model": {"type": "string"}, "duration": {"type": "number"}})]
 MODEL_SLUG = "wavespeed-ai/hunyuan-3d-v3.1-rapid"
 CDN = "https://cdn.example.com/jobs/job-1/output"  # signed links carry no file extension

@@ -64,8 +64,9 @@ class TemplateTest(unittest.TestCase):
         listed = {t["id"]: t for t in self.api("GET", "templates", env=bare)["templates"]}
         self.assertFalse(listed["prompt-to-3d"]["available"])
         self.assertEqual(set(listed["prompt-to-3d"]["missing_tools"]),
-                         {"image_generate or mcp__nanogpt__nanogpt_image_generate", "mcp__nanogpt__nanogpt_image_edit",
-                          "mcp__nanogpt__nanogpt_3d_generate"})
+                         {self.engine.presets.PRESET_TOOLS[t] for t in ("preset.text_to_image", "preset.image_edit",
+                                                              "preset.image_to_3d")})
+        self.assertFalse(any("nanogpt" in m for m in listed["prompt-to-3d"]["missing_tools"]))
         self.assertEqual(listed["text-to-speech"]["missing_tools"], ["text_to_speech"])
         self.assertEqual(listed["describe-image"]["missing_tools"], ["vision_analyze"])
         self.assertEqual(listed["web-research-digest"]["missing_tools"], ["web_search"])

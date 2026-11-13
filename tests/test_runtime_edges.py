@@ -174,7 +174,7 @@ class PendingJobIdentifierTest(unittest.TestCase):
         os.makedirs(self.out)
 
     def job(self, handler):
-        ctx = helpers.FakeCtx({P.TOOL_3D: handler})
+        ctx = helpers.FakeCtx({"mcp__acme__acme_3d_generate": handler})
         env = E.env.Env(ctx=ctx, state={})
         nctx = X.NodeContext(run_id="run_test", node_id="n_test", out_dir=self.out, log=lambda msg: None)
         return ctx, env, nctx
@@ -188,7 +188,7 @@ class PendingJobIdentifierTest(unittest.TestCase):
             with self.subTest(payload=payload):
                 ctx, env, nctx = self.job(lambda args, payload=payload: json.dumps(payload))
                 with self.assertRaises(X.NodeError) as caught:
-                    asyncio.run(P._run_job(env, P.TOOL_3D, {"prompt": "a robot"}, 5, nctx, "3D"))
+                    asyncio.run(P._run_job(env, "mcp__acme__acme_3d_generate", {"prompt": "a robot"}, 5, nctx, "3D"))
                 text = str(caught.exception).lower()
                 self.assertTrue("pending" in text or "identifier" in text or "runid" in text, text)
                 self.assertTrue("job" in text or "run" in text or "poll" in text, text)
@@ -198,7 +198,7 @@ class PendingJobIdentifierTest(unittest.TestCase):
         finished = {"status": "DONE", "urls": ["https://example.invalid/model.glb"],
                     "requestId": "req-finished"}
         ctx, env, nctx = self.job(lambda args: json.dumps(finished))
-        result = asyncio.run(P._run_job(env, P.TOOL_3D, {"prompt": "a robot"}, 5, nctx, "3D"))
+        result = asyncio.run(P._run_job(env, "mcp__acme__acme_3d_generate", {"prompt": "a robot"}, 5, nctx, "3D"))
         self.assertEqual(result, finished)
         self.assertEqual(len(ctx.calls), 1)
 
@@ -208,7 +208,7 @@ class PendingJobIdentifierTest(unittest.TestCase):
         done = {"structuredContent": {"status": "COMPLETED", "urls": ["https://example.invalid/video.mp4"]}}
         replies = iter([{"status": "PENDING", "runId": "run-abc", "modelSlug": "model-x"}, done])
         ctx, env, nctx = self.job(lambda args: json.dumps(next(replies)))
-        result = asyncio.run(P._run_job(env, P.TOOL_3D, {"prompt": "a robot"}, 5, nctx, "Video"))
+        result = asyncio.run(P._run_job(env, "mcp__acme__acme_3d_generate", {"prompt": "a robot"}, 5, nctx, "Video"))
         self.assertEqual(result, done)
         self.assertEqual(ctx.calls[0][1]["operation"], "submit_and_poll")
         self.assertEqual(ctx.calls[1][1], {"operation": "poll", "runId": "run-abc", "modelSlug": "model-x"})
@@ -216,7 +216,7 @@ class PendingJobIdentifierTest(unittest.TestCase):
         ctx, env, nctx = self.job(lambda args: json.dumps(
             {"status": "FAILED", "runId": "run-bad", "error": {"message": "synthetic provider failure"}}))
         with self.assertRaisesRegex(X.NodeError, "synthetic provider failure"):
-            asyncio.run(P._run_job(env, P.TOOL_3D, {"prompt": "a robot"}, 5, nctx, "3D"))
+            asyncio.run(P._run_job(env, "mcp__acme__acme_3d_generate", {"prompt": "a robot"}, 5, nctx, "3D"))
 
 
 class StartupSweepInterleavingTest(unittest.TestCase):

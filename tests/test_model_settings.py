@@ -318,8 +318,11 @@ class RouteTest(unittest.TestCase):
         self.assertEqual(len(self.env.ctx.calls), 1)
 
     def test_preset_default_model_and_unknown_model(self):
-        duration = self.get(type="preset.text_to_video", param="duration")  # blank -> lightricks-ltx-2-fast
-        self.assertEqual((duration["model"], duration["options"][0]["value"]), ("lightricks-ltx-2-fast", "6"))
+        duration = self.get(type="preset.text_to_video", param="duration")  # blank -> the cheapest listed model
+        listed = self.get(type="preset.text_to_video", param="model")["options"]
+        cheapest = E.presets.auto_pick(listed)["value"]
+        self.assertEqual(duration["model"], cheapest)
+        self.assertTrue(duration["found"])
         missing = self.get(type="tool:" + IMG, param="model", model="no-such-model")
         self.assertEqual((missing["found"], missing["fields"]), (False, {}))
         blank = self.get(type="tool:" + IMG, param="size")  # no model chosen, no default -> nothing to offer

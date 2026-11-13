@@ -124,8 +124,8 @@ def specs() -> list:
                      {"name": "status", "type": "text", "label": "Status"},
                      {"name": "run", "type": "json", "label": "Run"}],
          "params": [
-             {"name": "flow", "kind": "text", "label": "Flow", "default": "", "required": True,
-              "description": "Name or id of the flow to wait for (not this flow)."},
+             {"name": "flow", "kind": "text", "label": "Flow", "default": "", "required": True, "picker": "flow",
+              "description": "The flow to wait for (not this one). Stored as its id; a name works too."},
              {"name": "when", "kind": "select", "label": "When it", "default": "succeeded",
               "options": ["succeeded", "failed", "finished"],
               "description": "succeeded: the run finished without errors. failed: it ended with an error. "
@@ -339,12 +339,16 @@ def _strip_html(text: str) -> str:
     return " ".join(html.unescape(text).split())
 
 
+# Everything before the root element (BOM, XML declaration, comments, PIs, whitespace), then a DTD: refused
+# wherever it sits in the prolog, not only in the first 4 KB. CDATA in items may still mention <!DOCTYPE.
+_PROLOG_DTD = re.compile(rb"^(?:\xef\xbb\xbf)?(?:\s+|<\?.*?\?>|<!--.*?-->)*<!(?:doctype|entity)", re.I | re.S)
+
+
 def parse_feed(data: bytes) -> list:
     """Items of an RSS 2.0 / RSS 1.0 / Atom document, newest first as listed: [{id, title, link, summary,
     published}]. Documents with a DOCTYPE are refused (no entity expansion)."""
     import xml.etree.ElementTree as ET
-    head = data[:4096].decode("utf-8", "ignore").lower()
-    if "<!doctype" in head or "<!entity" in head:
+    if _PROLOG_DTD.match(data or b""):
         raise ValueError("feeds with a DOCTYPE are not accepted")
     try:
         root = ET.fromstring(data)

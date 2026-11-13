@@ -1011,7 +1011,7 @@ def _flow_action(env, method, flow_id, action, query, body):
         return {"flow": flow, "status": TR.status(env, flow, sched)}
     if action == "layout":
         types = N.types_by_name(env)
-        flow = S.modify_flow(env, flow_id, lambda f: L.auto_layout(f, types), base_revision=body.get("base_revision"))
+        flow = S.modify_flow(env, flow_id, lambda f: L.auto_layout(f, types, node_sizes=body.get("node_sizes")), base_revision=body.get("base_revision"))
         _emit_changed(env, flow, _origin(body, query))
         return {"flow": flow}
     raise HTTPException(404, f"no action {action!r}")
@@ -1105,6 +1105,12 @@ async def _options(env, query):
             return await O.fetch_options(env, param["options_source"], accepts=param.get("options_accepts"),
                                          refresh=refresh)
         model = model or str(model_param.get("default") or "")
+        if not model and model_param.get("auto"):   # blank -> show the settings of the model it will run with
+            from . import presets as P
+            listed = await O.fetch_options(env, model_param["options_source"],
+                                           accepts=model_param.get("options_accepts"))
+            mode = str(query.get("auto") or P.AUTO_MODES[0])
+            model = str((P.auto_pick(listed.get("options"), mode) or {}).get("value") or "")
         wanted = [n for n in params if n != model_param["name"]]  # any setting the model describes gets its choices
         claimed = O.claimed_args(spec) if spec.get("open_params") else None
         if not model:

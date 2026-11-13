@@ -1,7 +1,8 @@
 """G6: turn a prompt into validated flow_apply ops, with exactly one repair attempt.
 
-The model proposes edits only. It never executes a flow or calls a tool. Every answer is applied to
-an in-memory copy and validated before store.py is allowed to write anything.
+The model proposes edits only. It never executes a flow or calls a tool. The only tools the generator itself
+touches are read-only model-list catalogs (model_guide.py), so it knows which models each setting can take.
+Every answer is applied to an in-memory copy and validated before store.py is allowed to write anything.
 """
 from __future__ import annotations
 
@@ -16,6 +17,7 @@ import uuid
 
 from . import executors as E
 from . import graph as G
+from . import model_guide as MG
 from . import nodes as N
 from . import store as S
 from .executors import _llm_call   # review E-14: one sync bridge for both the LLM node and generation
@@ -365,7 +367,7 @@ def connection_guide(types: dict) -> str:
             "video or 3D model; use preset.vision for images). Consumers per output type:\n" + "\n".join(lines))
 
 
-def build_messages(prompt: str, flow: dict | None, types: dict, known_issues=None) -> list:
+def build_messages(prompt: str, flow: dict | None, types: dict, known_issues=None, model_guide: str = "") -> list:
     catalog, catalog_index = generation_catalog(prompt, flow, types)
     system = (
         "You build or edit Arachne Flow graphs. Do not run the flow and do not call any tools. "
@@ -374,7 +376,8 @@ def build_messages(prompt: str, flow: dict | None, types: dict, known_issues=Non
         "ref, and use ref.port for its later connections. For an existing flow, preserve nodes and "
         "edges unless the request requires changing them. Set dynamic templates/placeholders before "
         "connecting them. Finish with auto_layout unless the user explicitly requested exact positions. "
-        "The optional name is for a new flow only; use set_meta to rename an existing flow. "
+        "The optional name is for a new flow only. NEVER rename an existing flow (no set_meta name) unless the "
+        "user explicitly asks for a new name. "
         "Return compact JSON without indentation, prose or notes. Every operation MUST have an 'op' key. "
         "An add_node uses flat type/title/params fields, NEVER a nested node object. "
         "Example: {\"ops\":[{\"op\":\"add_node\",\"ref\":\"a\",\"type\":\"input.text\",\"params\":{\"value\":\"Hello\"}},"
@@ -389,7 +392,12 @@ def build_messages(prompt: str, flow: dict | None, types: dict, known_issues=Non
         "For a vague request, build a useful "
         "6-8 node example with at most 24 operations, not an exhaustive showcase. "
         "Satisfy required inputs with a connection or a same-named constant in params. "
-        "Keep existing provider/model settings; leave new LLM models at defaults unless requested. "
+        "MODELS: the MODEL GUIDE lists what each model setting can take, with abilities, prices and purpose. "
+        "When the user names a model (even loosely, e.g. 'GLM Flash' or 'Flux'), set the closest listed id exactly; "
+        "for llm.complete set provider and model together as listed. Without a named model, pick per step by "
+        "what it needs (reads images for image input, reasoning for planning/code, a cheap fast model for simple "
+        "text work) or leave model empty for Hermes' active model. Never invent an id that is not listed; keep "
+        "existing model settings unless the request changes them. "
         "Join exclusive If/Switch branches with logic.merge before a shared step. "
         "Set Switch cases before wiring caseN. Foreach.item and index stay inside its Collect boundary; "
         "after Collect use its list output. Do not nest loops.\n\n"
@@ -401,6 +409,8 @@ def build_messages(prompt: str, flow: dict | None, types: dict, known_issues=Non
     user = (
         "AVAILABLE NODE TYPES (one compact JSON object per line)\n" + catalog +
         "\n\nCONNECTION GUIDE\n" + connection_guide(types) +
+        ("\n\nMODEL GUIDE (ids to use for model settings; cheapest first within a list)\n" + model_guide
+         if model_guide else "") +
         "\n\nCURRENT WIRING (readable view of the flow below)\n" + describe_flow(flow, types) +
         "\n\nCURRENT FLOW (null means create a new flow)\n" +
         json.dumps(flow, ensure_ascii=False, separators=(",", ":")) + known_text + catalog_index +
@@ -501,6 +511,22 @@ def keep_trigger_arming(base, candidate: dict) -> None:
         params.setdefault("active", False)
 
 
+_RENAME_ASK = re.compile(
+    r"\b(umbenenn\w*|benenn\w*|rename\w*|neuen?\s+namen|anderen?\s+namen|name\s+(it|the\s+flow)|"
+    r"call\s+(it|the\s+flow)|nenn\w*\s+(ihn|es|den\s+flow|das|flow)|heißen|heissen)\b", re.I)   # not "title": node titles are edited often
+
+
+def wants_rename(prompt: str) -> bool:
+    """Only an explicit request may rename an existing flow; models like to retitle it after every edit."""
+    return bool(_RENAME_ASK.search(prompt or ""))
+
+
+def keep_flow_name(base, candidate: dict, prompt: str = "") -> None:
+    """An edit of an existing flow keeps its name unless the user asked for a new one (new flows are named)."""
+    if base is not None and isinstance(base.get("name"), str) and not wants_rename(prompt):
+        candidate["name"] = base["name"]
+
+
 def _candidate(base: dict | None, proposed: dict, types: dict, fallback_name: str, base_errors=None, prompt: str = ""):
     if not proposed["ops"]:
         raise CandidateError("the answer contains no operations")
@@ -514,6 +540,7 @@ def _candidate(base: dict | None, proposed: dict, types: dict, fallback_name: st
         raise CandidateError(str(exc)) from None
     candidate, results = drop_intermediate_previews(base, candidate, types, results, prompt)
     keep_trigger_arming(base, candidate)
+    keep_flow_name(base, candidate, prompt)
     issues = G.validate(candidate, types)
     known = {(i.get("node"), i.get("port"), i.get("message")) for i in (base_errors or [])}
     new_errors = [i for i in issues if i.get("level") == "error" and
@@ -573,7 +600,8 @@ def _prepare(env, body: dict) -> dict:
         if stale:
             raise S.ConflictError(flow_id, int(before.get("revision", 0)), base_revision)
     return {"prompt": prompt, "flow_id": flow_id, "model": model, "provider": provider,
-            "before": before, "base_revision": base_revision}
+            "before": before, "base_revision": base_revision,
+            "llm_models": MG.sanitize_llm_models(body.get("llm_models"))}
 
 
 async def _generate(env, job: dict, progress=None) -> dict:
@@ -586,7 +614,9 @@ async def _generate(env, job: dict, progress=None) -> dict:
     types = N.types_by_name(env)
     base_issues = G.validate(before, types) if before is not None else []
     base_errors = [i for i in base_issues if i.get("level") == "error"]
-    messages = build_messages(prompt, before, types, known_issues=base_errors)
+    phase("models")
+    guide = await MG.build_guide(env, prompt, before, types, job.get("llm_models"))
+    messages = build_messages(prompt, before, types, known_issues=base_errors, model_guide=guide)
     phase("thinking")
     raw = await _complete(env, messages, model=model, provider=provider)
     fallback_name = prompt.splitlines()[0][:80] or "Generated flow"

@@ -201,7 +201,7 @@ class GenerateJobTest(unittest.TestCase):
         self.assertTrue(done["result"]["created"])
         self.assertEqual(done["phase"], "done")
         self.assertEqual(len(changed), 1)
-        self.assertIn(phases[0], ("starting", "thinking"))
+        self.assertIn(phases[0], ("starting", "models", "thinking"))
         ids = [f["id"] for f in self.engine.store.list_flows(self.env)]
         self.assertIn(done["result"]["flow"]["id"], ids)
 

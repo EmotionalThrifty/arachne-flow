@@ -13,22 +13,25 @@ Arachne Flow (`arachne-flow`) adds a visual workspace to Hermes Desktop where yo
 
 ## Install
 
-This is the public source repository. It is **not yet an accepted Hermes plugin-catalog entry**.
-Install directly from GitHub with Hermes' plugin manager:
+This is the public source repository. The Hermes plugin catalog lists an earlier release under the former id
+`flowcanvas`; for the current version install directly from GitHub with Hermes' plugin manager:
 
 ```bash
 hermes plugins install EmotionalThrifty/arachne-flow --enable
 ```
 
 For a reproducible install, append `--ref <full-40-character-commit-sha>` using a commit from this repository.
-The plugin ID remains `arachne-flow`; the repository name is `arachne-flow`. Installing by the bare catalog
-name `arachne-flow` is not promised until a catalog entry has been accepted.
+The plugin ID is `arachne-flow`; the repository name is `arachne-flow`. Installing by the bare catalog
+name `arachne-flow` is not promised until the catalog entry carries the new id.
 
 Restart Hermes Desktop through your normal launcher after installation. **Arachne Flow** appears in the
 sidebar, `/flow` is available in chat, and the agent can use the `flow_*` tools.
 
-For image, video, 3D, and YouTube transcript presets, separately enable `@nanogpt/mcp` in Hermes' MCP
-settings. Other tool-backed nodes also require their corresponding Hermes tools and provider settings.
+Arachne Flow is provider-independent. LLM nodes use whatever provider Hermes is set up with (OpenRouter, Nous,
+OpenCode, LiteLLM, Portkey, a custom OpenAI-compatible gateway, …). **Ready-made** media nodes appear for what
+your setup can actually do: Hermes' own image/video backends first, then any MCP server whose tools generate
+images, video or 3D (found by what the tool does, not by its name). A step with several providers is one node
+with a **Provider** choice; steps no provider offers are hidden.
 Start with the fully local **Local list cleanup** template to avoid provider calls or charges.
 
 ### Preview and review status
@@ -59,14 +62,16 @@ Open a saved GLB result in the built-in viewer to rotate, pan and zoom.
 
 ### Build with Hermes
 
-Describe the workflow you want. Build edits the graph; Run executes it.
+Describe the workflow you want. Build edits the graph; Run executes it. Its elapsed timer updates every second, independently of background-job polling. The searchable model list floats over the dialog without resizing it. Build reads the model lists of your providers, so it can set the models you name and pick fitting ones per step; it only renames an existing flow when you ask for it.
+
+**Tidy** arranges every node left to right by its connections, using the current card sizes so long notes, template inputs and media previews have room. It preserves settings and connections and can be undone. While a wire is being pulled, tooltips stay out of the way and come back as soon as the wire is dropped or cancelled.
 
 ![Build with Hermes dialog with a workflow description and model selection](docs/screenshots/build-with-hermes.png)
 
 ## Your first flow in two minutes
 
 1. Open **Arachne Flow** from the Hermes Desktop sidebar.
-2. Open **Flows** and choose **Local list cleanup** for a fully local first run. Other templates include **Web research digest** (web + LLM tools) and **Prompt → image → 3D** (`@nanogpt/mcp`); these can call external providers. Choose **New blank flow** to start empty.
+2. Open **Flows → Templates** and choose **Local list cleanup** for a fully local first run. Other templates include **Web research digest** (web + LLM tools) and **Prompt → image → 3D** (needs an image and a 3D provider); these can call external providers. Choose **New blank flow** to start empty.
 3. Click any node to edit its settings in the right inspector. Drag from an output port (`●` on the right of a node) to an input port (`●` on the left of another node) to connect them — compatible ports highlight in green.
 4. Prefer to describe it in words? Click **Build with Hermes** in the top bar, type what you want (for example: *"Search the web for two topics in parallel and summarize both into a report"*), and click **Build flow**.
    Hermes places the nodes, wires them, and lays out the canvas. **Build with Hermes only edits the diagram — it does not run the flow or media tools. The model call used to build the graph can itself cost provider credits.**
@@ -112,7 +117,8 @@ In chat or scheduled jobs, Hermes uses `flow_list`, `flow_get`, `flow_node_types
   A pipeline you build on the canvas runs identically via `/flow run`, `flow_run` in chat, or an unattended cron schedule.
 - **Built-in media and 3D viewer** — Output cards render formatted markdown, JSON, images, audio, video, and interactive WebGL `.glb` 3D models (orbit, zoom, wireframe, lighting, auto-rotate, background).
   Click any media preview to open an 85%-viewport lightbox or reveal the file in your OS file manager.
-- **12 starter templates + custom templates** — Ships with two fully local data flows (*Local list cleanup*, *JSON objects through a loop*), five `@nanogpt/mcp` media flows (*Prompt → image → 3D*, *Edit an image*, *Idea to video*, *Animate a picture*, *YouTube summary*) and five Hermes tool + LLM flows (*Web research digest*, *Blog post writer*, *Describe an image*, *Text → speech*, *Translate and speak*).
+- **Searchable flow library** — **Flows** separates **Your flows** and **Templates**, with a search across both. The eight most recently changed flows appear first; **Show all** opens the complete list. Search and current-flow actions stay visible while the list scrolls. **After flow** has its own searchable flow picker; it stores the flow id so renaming a selected flow does not break the link.
+- **12 starter templates + custom templates** — Ships with two fully local data flows (*Local list cleanup*, *JSON objects through a loop*), five media flows (any image/video/3D provider) (*Prompt → image → 3D*, *Edit an image*, *Idea to video*, *Animate a picture*, *YouTube summary*) and five Hermes tool + LLM flows (*Web research digest*, *Blog post writer*, *Describe an image*, *Text → speech*, *Translate and speak*).
   Save any flow as a reusable user template via **Save as template** or `flow_template_save`.
 - **Second window mode** — Pop Arachne Flow into its own window so you can watch a pipeline execute side by side with your Hermes chat.
 
@@ -172,11 +178,12 @@ In chat or scheduled jobs, Hermes uses `flow_list`, `flow_get`, `flow_node_types
 | **For each** / **Collect** (`logic.foreach`, `logic.collect`) | Split a list/lines/JSON array, run the body in parallel per item, and gather results in order | Generate left, back, and right camera angles at once |
 | **Preview** (`output.preview`) | Render markdown, JSON, images, audio, video, or interactive `.glb` 3D models | Inspect a finished video or 3D mesh on the canvas |
 | **Note** (`note`) | Add a sticky note to explain a section of the graph (never executes) | Document required inputs or prompt tips |
-| **Text to image** (`preset.text_to_image`) | Generate an image from a prompt via `@nanogpt/mcp` (model & size picker) | Create a clean front-view character concept |
-| **Edit image** (`preset.image_edit`) | Transform or combine up to 4 images from a text instruction via `@nanogpt/mcp` | Rotate a character concept to a 90° side view |
-| **Image to 3D** / **Text to 3D** (`preset.image_to_3d`, `preset.text_to_3d`) | Generate a `.glb` 3D mesh from 1–4 reference views or a text prompt via `@nanogpt/mcp` | Turn 4 character views into a textured 3D asset |
-| **Text to video** / **Image to video** (`preset.text_to_video`, `preset.image_to_video`) | Render an MP4 clip from a prompt or starting image via `@nanogpt/mcp` | Animate a still illustration into a 6 s video |
-| **YouTube transcript** (`preset.youtube_transcript`) | Fetch captions from a YouTube URL via `@nanogpt/mcp` | Pull a talk transcript for summarization or translation |
+| **Text to image** (`preset.text_to_image`) | Generate an image from a prompt (model & size picker) | Create a clean front-view character concept |
+| **Edit image** (`preset.image_edit`) | Transform or combine up to 4 images from a text instruction | Rotate a character concept to a 90° side view |
+| **Image to 3D** / **Text to 3D** (`preset.image_to_3d`, `preset.text_to_3d`) | Generate a `.glb` 3D mesh from 1–4 reference views or a text prompt | Turn 4 character views into a textured 3D asset |
+| **Text to video** / **Image to video** (`preset.text_to_video`, `preset.image_to_video`) | Render an MP4 clip from a prompt or starting image | Animate a still illustration into a 6 s video |
+| **YouTube transcript** (`preset.youtube_transcript`) | Fetch captions from a YouTube URL | Pull a talk transcript for summarization or translation |
+| **Edit 3D model** (`preset.edit_3d`) | Rig, animate, remesh, retexture or convert a 3D model from an earlier provider step; the list shows only models that take a 3D model | Rig a generated character, then pick a walk animation |
 | **Vision** (`preset.vision`) | Analyze an image with Hermes' built-in `vision_analyze` tool | Ask questions about a screenshot or diagram |
 | **Text to speech** (`preset.tts`) | Convert text into audio with Hermes' `text_to_speech` tool | Turn a written digest into a spoken briefing |
 | **Web search** / **Web extract** (`preset.web_search`, `preset.web_extract`) | Search the web or extract clean text from a URL via built-in Hermes web tools | Gather and read source pages for a research flow |
@@ -214,7 +221,7 @@ Set plugin options in `~/.hermes/config.yaml` under `plugins.config.arachne-flow
   Clear the `model` / `provider` field on the node to use your session default, or set `plugins.entries.arachne-flow.llm.allow_model_override: true` (and `allow_provider_override: true`) in `~/.hermes/config.yaml`.
 - **Media presets are missing or marked `skipped`** —
   Presets appear only when their backing tool is loaded.
-  Enable `@nanogpt/mcp` in `Settings → MCP` and restart Hermes Desktop for image, video, 3D, and YouTube presets.
+  Set up an image/video backend in Hermes or enable an MCP server that generates media, then restart Hermes Desktop; the matching Ready-made nodes appear.
 - **A tool wrote a media file on disk, but no preview appears** —
   Only media files inside `<HERMES_HOME>`, `<HERMES_HOME>/plugin-data/arachne-flow/`, or `ARACHNE_FLOW_MEDIA_ROOTS` are imported into a run.
   Add your external output folder to `ARACHNE_FLOW_MEDIA_ROOTS` (`;` on Windows, `:` on Linux/macOS).

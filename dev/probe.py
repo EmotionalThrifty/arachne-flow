@@ -27,7 +27,7 @@ SCENARIOS = ("empty", "template", "running", "done", "inspector", "quick", "quic
              "partial", "fresh", "stop", "shortcut", "inspector_error", "tool_swap", "edit_keys",
              "agent_sync", "agent_sync_dirty", "agent_undo", "ask", "ask_none", "shell", "model_picker",
              "tool_options", "llm_info",
-             "lightbox", "lightbox_inspector", "palette", "files", "popin", "templates", "generate", "model_settings", "media_inputs", "inline_media", "timings", "logic", "loop", "triggers")
+             "lightbox", "lightbox_inspector", "palette", "files", "popin", "templates", "generate", "model_settings", "media_inputs", "inline_media", "timings", "logic", "loop", "triggers", "tidy", "wire")
 
 
 def overlaps(nodes: list) -> list:
@@ -46,7 +46,7 @@ def probe(scenario: str, port: int, width=1600, height=1000) -> dict:
                                "lightbox": "done", "lightbox_inspector": "inspector",
                                "palette": "template", "files": "template", "popin": "template",
                                "templates": "template", "generate": "empty",
-                               "agent_undo": "template"}.get(scenario, scenario))
+                               "agent_undo": "template", "tidy": "empty", "wire": "empty"}.get(scenario, scenario))
     query = {"events": "0", "diag_ms": "4500"}
     if seeded.get("flow_id"):
         query["flow"] = seeded["flow_id"]
@@ -75,7 +75,12 @@ def probe(scenario: str, port: int, width=1600, height=1000) -> dict:
     if scenario == "templates":
         query.update(templates="check", shell="desktop", diag_ms="9000")
     if scenario == "generate":
+        width, height = 1100, 700  # the upward model popup used to protrude above this window
         query.update(generate="check", shell="desktop", diag_ms="12000")
+    if scenario == "tidy":
+        query.update(tidy="check", shell="desktop", diag_ms="15000")
+    if scenario == "wire":
+        query.update(wire="check", shell="desktop", diag_ms="16000")
     if scenario == "llm_info":
         query.update(llm_info="check", inspector="1", diag_ms="6500")
     if scenario == "model_settings":
@@ -239,7 +244,7 @@ def check_palette(p: dict) -> list:
     if not tip:
         problems.append("hovering a palette entry showed no tooltip")
     else:
-        if tip.get("rows") != ["in", "out", "typical", "cost"] or "~$0.27 per model" not in tip.get("text", "") \
+        if tip.get("rows") != ["in", "out", "typical", "cost"] or "Paid per model" not in tip.get("text", "") \
                 or "minutes" not in tip.get("text", "") or tip.get("dots") != 2:
             problems.append(f"tooltip content: rows={tip.get('rows')} dots={tip.get('dots')} text={tip.get('text')!r}")
         b = tip.get("bubble") or {}
@@ -262,7 +267,7 @@ def check_palette(p: dict) -> list:
             or port.get("foldDisabled") is not True:
         problems.append(f"search by port type 'model3d': {port}")
     if not {"preset.image_to_3d", "preset.text_to_3d"} <= set((p.get("desc") or {}).get("items") or []):
-        problems.append(f"search by description 'polls': {p.get('desc')}")
+        problems.append(f"search by description 'waits for': {p.get('desc')}")
     if "image" not in ((p.get("image") or {}).get("active") or "").lower():
         problems.append(f"Enter target for 'image' is not a title match: {p.get('image')}")
     cleared = p.get("cleared") or {}
@@ -300,9 +305,9 @@ def check_model_settings(m: dict, list_calls: list) -> list:
     pills = m.get("pills") or []
     if len(pills) != 3 or len({(p["font"], p["color"]) for p in pills}) != 1:
         problems.append(f"cost pills differ or are missing: {pills}")
-    for p in pills:  # pixel check: inside the header, right of the title, not clipped
+    for p in pills:  # pixel check (Clean card): inside the footer, below the title, not clipped
         pb, nb, hb = p["pill"], p["name"], p["head"]
-        if p["clipped"] or pb["l"] < nb["r"] - 0.5 or pb["t"] < hb["t"] or pb["b"] > hb["b"] or pb["r"] > hb["r"]:
+        if p["clipped"] or pb["t"] < nb["b"] or pb["t"] < hb["t"] - 0.5 or pb["b"] > hb["b"] + 0.5 or pb["r"] > hb["r"]:
             problems.append(f"cost pill misplaced on {p['title']}: {p}")
     if sorted(set(list_calls)) != sorted(list_calls) or len(list_calls) > 2:
         problems.append(f"model lists called more than once each: {list_calls}")
@@ -380,7 +385,7 @@ def check_templates(t: dict) -> list:
     if not s.get("closed") or "My 3D pipeline" not in (s.get("notice") or ""):
         problems.append(f"after saving: {s}")
     m = t.get("menuAfterSave") or {}
-    if m.get("labels") != ["Your flows", "Your templates", "Built-in templates"] or \
+    if m.get("labels") != ["Your templates", "Built-in templates"] or \
             [o.get("text") for o in m.get("own") or []] != ["My 3D pipeline"] or t.get("id") != "u-my-3d-pipeline":
         problems.append(f"menu after save: {m}")
     e = t.get("edit") or {}
@@ -653,7 +658,8 @@ def main() -> int:
                 problems.append("hidden provider param is shown in the inspector")
         if s == "tool_options":
             mp = d.get("modelPicker") or {}
-            want = ["Tool default", 'Meshy 7.1 Multi-Image to 3D', "Tripo P1", "Hunyuan 3D v3.1 Rapid"]  # groups A-Z; rig: mesh only
+            # groups A-Z; a raw tool node lists every model, also edit models (Rig) that need a 3D model input
+            want = ["Tool default", 'Meshy 7.1 Multi-Image to 3D', "Tripo P1", "Tripo Rig", "Hunyuan 3D v3.1 Rapid"]
             if mp.get("error") or mp.get("labels") != want:
                 problems.append(f"tool model picker: labels={mp.get('labels')} error={mp.get('error')}")
         if s == "quick":
@@ -693,6 +699,30 @@ def main() -> int:
                 problems.append(f"inline mesh thumbnail or interactive viewer missing: {mesh}")
             if not audio.get("controls") or audio.get("duration", 0) <= 0:
                 problems.append(f"inline audio missing: {audio}")
+        if s == "wire":
+            wd = d.get("wire") or {}
+            if wd.get("done") is not True:
+                problems.append(f"wire-tip regression did not finish: {wd}")
+            if not (wd.get("tipBefore") or 0) or not wd.get("titleBefore"):
+                problems.append(f"a tip must open normally before the drag: {wd}")
+            for name in ("tipsDuringWire", "titlesDuringWire", "tipsAfterHoverDuringWire", "titlesAfterHoverDuringWire", "tipsBeforeEscape"):
+                if wd.get(name) != 0:
+                    problems.append(f"{name}={wd.get(name)} (want 0 while a wire is pulled)")
+            if wd.get("guardDuringWire") is not True or wd.get("guardAfterDrop") is not False:
+                problems.append(f"the drag-only tip rule must exist exactly while the wire is live: {wd}")
+            if wd.get("edgesAfter") != (wd.get("edgesBefore") or 0) + 1 or wd.get("wireGone") is not True:
+                problems.append(f"the wire was not connected: {wd}")
+            if not (wd.get("tipAfter") or 0) or not wd.get("titleAfter") or (wd.get("tipAfterEscape") or 0) == 0:
+                problems.append(f"tips must return after drop and after Escape: {wd}")
+        if s == "tidy":
+            td = d.get("tidy") or {}
+            for name in ("done", "undo", "redo", "stable", "zoomSafe", "allMeasured", "contentPreserved"):
+                if td.get(name) is not True:
+                    problems.append(f"Tidy regression {name}: {td}")
+            if td.get("afterOverlaps") != 0 or not td.get("beforeOverlaps"):
+                problems.append(f"Tidy did not remove the fixture overlaps: {td}")
+        if s == "generate" and (d.get("generate") or {}).get("pickerFits") is not True:
+            problems.append("the build model dropdown is clipped or protrudes beyond its dialog")
         if s == "timings":
             problems += check_timings(d.get("timings"))
         if s == "logic":
@@ -709,6 +739,19 @@ def main() -> int:
                 problems.append(f"after activation: toggle={tr.get('toggle')} notice={tr.get('notice')!r}")
             if "Schedule with Hermes" in (tr.get("menuText") or ""):
                 problems.append("the flows menu still offers Schedule with Hermes")
+            if tr.get("menuTabs") != ["flows", "templates"] or not tr.get("searchFocused"):
+                problems.append(f"flows menu: tabs={tr.get('menuTabs')} search focused={tr.get('searchFocused')}")
+            if tr.get("searchHits") != ["Blog post writer"]:
+                problems.append(f"flows menu search 'blog': {tr.get('searchHits')}")
+            opts = " | ".join(tr.get("flowOptions") or [])
+            if "Morning digest" not in opts or "Vault inbox tagger" not in opts or "Triggers" in opts:
+                problems.append(f"After flow picker options: {tr.get('flowOptions')}")
+            if len(tr.get("flowOptions") or []) != 22:
+                problems.append(f"After flow picker did not list all 22 other flows: {len(tr.get('flowOptions') or [])}")
+            if not tr.get("pickerFits"):
+                problems.append("After flow picker is clipped by the inspector")
+            if not any(name in (tr.get("flowChosen") or "") for name in ("Morning digest", "Vault inbox tagger", "Pipeline")):
+                problems.append(f"After flow picker choice: {tr.get('flowChosen')!r}")
         if s == "done":
             if "Done" not in (d.get("runChip") or ""):
                 problems.append(f"last run was not loaded on open: {d.get('runChip')}")

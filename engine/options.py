@@ -131,8 +131,11 @@ def to_options(result, accepts=None) -> list:
         if accepts and ins is not None and accepts not in ins:
             continue
         caps = row.get("capabilities") if isinstance(row.get("capabilities"), dict) else {}
-        if caps.get("requires_mesh"):
-            continue  # mesh post-processing models, not generators
+        edits = bool(caps.get("requires_mesh")) or (ins is not None and "3d" in ins)
+        if accepts == "3d" and not edits:
+            continue  # "Edit 3D model" lists only models that take a 3D model
+        if accepts and accepts != "3d" and caps.get("requires_mesh"):
+            continue  # they need an existing model: offered by "Edit 3D model", not by the generators
         seen.add(value)
         name = row.get("name") if isinstance(row.get("name"), str) else ""
         group = row.get("owned_by") or row.get("provider") or (value.split("/", 1)[0] if "/" in value else "")
@@ -140,8 +143,15 @@ def to_options(result, accepts=None) -> list:
         pricing = row.get("pricing") if isinstance(row.get("pricing"), dict) else {}
         unit = "/s" if isinstance(pricing.get("per_second"), (int, float)) and not any(
             isinstance(pricing.get(k), (int, float)) for k in ("starting_at", "per_run", "per_image")) else ""
-        out.append({"value": value, "label": name or value, "group": str(group or "Other"),
-                    "price": _price(row), "unit": unit, "description": description[:240]})
+        item = {"value": value, "label": name or value, "group": str(group or "Other"),
+                "price": _price(row), "unit": unit, "description": description[:240]}
+        operation = caps.get("operation")
+        if accepts == "3d" and isinstance(operation, str) and operation:
+            item["operation"] = operation          # rigging / animation / remesh / retexture / process
+        sub = row.get("subscription")
+        if isinstance(sub, dict) and isinstance(sub.get("included"), bool):
+            item["included"] = sub["included"]     # the provider's own flag: part of the user's plan or paid extra
+        out.append(item)
         if len(out) >= MAX_OPTIONS:
             break
     return out

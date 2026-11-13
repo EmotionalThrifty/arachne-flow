@@ -71,19 +71,23 @@ class PairingTest(unittest.TestCase):
         other = next(p for p in types["tool:mcp__other__render"]["params"] if p["name"] == "model")
         self.assertNotIn("options_source", other)
 
-    def test_presets_get_a_default_model(self):
+    def test_presets_pick_the_cheapest_model_when_blank(self):
         env, _ = env_with()
         types = E.nodes.types_by_name(env, tools=[t for t in TOOLS if t["name"] != "image_generate"])
         img = next(p for p in types["preset.text_to_image"]["params"] if p["name"] == "model")
-        self.assertEqual((img["default"], img["options_accepts"]), ("flux-2-klein-9b", "text"))
+        self.assertEqual((img.get("default"), img["options_accepts"], img["auto"]), (None, "text", E.presets.AUTO_PARAM))
+        pick = E.presets.auto_pick([{"value": "b", "price": 0.2}, {"value": "a", "price": 0.01}, {"value": "c"}])
+        self.assertEqual(pick["value"], "a")
+        self.assertEqual(E.presets.auto_pick([{"value": "x"}, {"value": "y"}])["value"], "x")
+        self.assertIsNone(E.presets.auto_pick([]))
         d3 = next(p for p in types["preset.image_to_3d"]["params"] if p["name"] == "model")
         self.assertEqual(d3["options_accepts"], "image")
 
-    def test_blank_model_falls_back_to_the_default(self):
+    def test_blank_model_is_left_to_the_run(self):
         env, _ = env_with()
         spec = E.nodes.types_by_name(env, tools=[t for t in TOOLS if t["name"] != "image_generate"])["preset.text_to_image"]
         args = E.executors.build_tool_args(spec, {"params": {"model": ""}}, {"prompt": "a cat"})
-        self.assertEqual(args["model"], "flux-2-klein-9b")
+        self.assertNotIn("model", args)        # presets.execute picks the cheapest listed model (_auto_model)
         args = E.executors.build_tool_args(spec, {"params": {"model": "nano-banana"}}, {"prompt": "a cat"})
         self.assertEqual(args["model"], "nano-banana")
 
@@ -133,7 +137,8 @@ NEW_TOOLS = TOOLS + [
     tool("mcp__nanogpt__nanogpt_image_edit", {"prompt": {"type": "string"}, "model": {"type": "string"},
                                               "imageDataUrl": {"type": "string"}, "maskDataUrl": {"type": "string"},
                                               "include_raw": {"type": "boolean"}}, ["prompt"]),
-    tool("mcp__nanogpt__nanogpt_video_generate", {"operation": {"type": "string"}, "model": {"type": "string"},
+    tool("mcp__nanogpt__nanogpt_video_generate", {"operation": {"type": "string", "enum": ["submit", "poll", "status"]},
+                                                  "model": {"type": "string"},
                                                   "prompt": {"type": "string"}, "imageUrl": {"type": "string"},
                                                   "imageDataUrl": {"type": "string"}, "duration": {"type": "number"},
                                                   "poll_interval_ms": {"type": "integer"}}),
@@ -153,8 +158,8 @@ class NewPresetTest(unittest.TestCase):
         names = {p["name"] for p in self.types["preset.text_to_video"]["params"]}
         self.assertFalse(names & {"operation", "poll_interval_ms", "imageUrl"})
         video_model = next(p for p in self.types["preset.text_to_video"]["params"] if p["name"] == "model")
-        self.assertEqual((video_model["default"], video_model["options_source"]),
-                         ("lightricks-ltx-2-fast", "mcp__nanogpt__nanogpt_list_video_models"))
+        self.assertEqual((video_model.get("default"), video_model["options_source"]),
+                         (None, "mcp__nanogpt__nanogpt_list_video_models"))
         duration = next(p for p in self.types["preset.text_to_video"]["params"] if p["name"] == "duration")
         self.assertEqual(duration["default"], 6)
         edit = {p["name"] for p in self.types["preset.image_edit"]["params"]}
@@ -167,7 +172,7 @@ class NewPresetTest(unittest.TestCase):
         node = {"type": "preset.image_edit", "params": {}}
         args = E.presets._tool_args(node, self.types["preset.image_edit"], {"image": "data:image/png;base64,AA", "prompt": "p"})
         self.assertEqual(args["imageDataUrl"], "data:image/png;base64,AA")
-        self.assertEqual(args["model"], "blackforestlabs/flux-3/klein/edit-image")
+        self.assertNotIn("model", args)
         node = {"type": "preset.image_to_video", "params": {}}
         args = E.presets._tool_args(node, self.types["preset.image_to_video"], {"image": "https://x/a.png", "prompt": "p"})
         self.assertEqual((args["imageUrl"], args["duration"]), ("https://x/a.png", 6))

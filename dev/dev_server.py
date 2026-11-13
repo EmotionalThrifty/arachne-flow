@@ -374,6 +374,7 @@ def reset(scenario: str) -> dict:
             {"op": "add_node", "ref": "clock", "type": "trigger.schedule", "title": "Every morning",
              "params": {"schedule": "weekdays 08:00"}},
             {"op": "add_node", "ref": "hook", "type": "trigger.webhook", "title": "Incoming"},
+            {"op": "add_node", "ref": "after", "type": "trigger.flow", "title": "After"},
             {"op": "add_node", "ref": "msg", "type": "text.template", "title": "Message",
              "params": {"template": "{{time}} {{body}}"}},
             {"op": "connect", "from": "clock.time", "to": "msg.time"},
@@ -382,6 +383,8 @@ def reset(scenario: str) -> dict:
         ], types)
         refs = {r["ref"]: r["node"] for r in results if isinstance(r, dict) and r.get("ref")}
         flow = E.store.save_flow(env, flow, create=True)
+        for name in ("Morning digest", "Vault inbox tagger", *(f"Pipeline {i:02d}" for i in range(1, 21))):
+            E.store.save_flow(env, E.graph.new_flow(name), create=True)
         return {"flow_id": flow["id"], "select": refs["hook"], "run_id": None}
     if scenario == "inline_media":
         # Real local fixture bytes, not a provider call: every File node should show its own result.
@@ -608,7 +611,7 @@ def build_app() -> FastAPI:
 
     @app.get("/{name}.js")
     def dev_js(name: str):
-        if name not in ("sdk-stub", "boot"):
+        if name not in ("sdk-stub", "boot", "tidy-probe", "wire-probe"):
             return Response(status_code=404)
         return no_cache(os.path.join(HERE, name + ".js"), "text/javascript")
 

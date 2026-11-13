@@ -1,7 +1,9 @@
 // Arachne Flow — the Hermes Desktop page of the arachne-flow plugin.
 //
-// One file on purpose: Desktop evaluates it from a blob: URL, so it cannot import siblings. Imports are
-// limited to the plugin SDK and React. Pure logic (geometry, graph edits, undo, parsing) lives in plain
+// GENERATED: desktop/plugin.js is built from desktop/src/NN-*.js by `node scripts/build_desktop.mjs`; edit the
+// sources, never plugin.js (check.sh refuses a stale build). One shipped file on purpose: Desktop evaluates it
+// from a blob: URL, so it cannot import siblings. The parts share one module scope; imports are limited to the
+// plugin SDK and React and live in 00-core.js. Pure logic (geometry, graph edits, undo, parsing) lives in plain
 // functions exported through `_internals` and is unit-tested in tests/js without the app.
 import * as sdk from '@hermes/plugin-sdk'
 import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useReducer, useRef, useState } from 'react'
@@ -13,7 +15,7 @@ const ROUTE = '/arachne-flow'
 const evt = (name) => `plugin.${PLUGIN_ID}.${name}`
 
 const NODE_W = 240
-const HEAD_H = 34
+const HEAD_H = 48  // Clean card: title line + "provider · model" line (ports and wires are placed below it)
 const PORTS_TOP = 6
 const ROW_H = 22
 const GRID = 10
@@ -715,8 +717,11 @@ function changeNodeType(flow, id, type, typesInfo) {
   if (!node || !spec || node.type === type) return flow
   const old = byName[node.type]
   const known = new Set([...(spec.params || []).map((p) => p.name), 'cache', 'timeout_s'])
+  // Same step on another provider: its model list (and the settings that model offered) belong to the old one.
+  const sameStep = !!(spec.provider_group && old && old.provider_group === spec.provider_group)
+  const providerOwned = new Set(sameStep ? (old.params || []).filter((p) => p.options_source || p.from_model).map((p) => p.name) : [])
   const params = {}
-  for (const [k, v] of Object.entries(node.params || {})) if (known.has(k)) params[k] = v
+  for (const [k, v] of Object.entries(node.params || {})) if (known.has(k) && !providerOwned.has(k)) params[k] = v
   const next = { ...node, type, params }
   if (next.title && (!old || next.title === old.title)) delete next.title
   const ports = nodePorts(next, spec)
@@ -842,24 +847,41 @@ function applyRemote(doc, flow) {
 
 // ---- Build with Hermes (G6): controlled draft, so an error never discards the prompt or model.
 const generateInitial = () => ({ open: false, busy: false, error: '', draft: { prompt: '', model: null, provider: null },
-  jobId: null, phase: '', elapsed: 0 })
+  jobId: null, phase: '', elapsed: 0, startedAt: null })
 function generateReducer(state, action) {
   switch (action.type) {
     case 'open': return { ...state, open: true, error: '' }
-    case 'close': return { ...state, open: false, busy: false, error: '', jobId: null, phase: '', elapsed: 0 }
+    case 'close': return { ...state, open: false, busy: false, error: '', jobId: null, phase: '', elapsed: 0, startedAt: null }
     case 'edit': return { ...state, draft: { ...state.draft, ...action.patch }, error: '' }
-    case 'start': return { ...state, busy: true, error: '', jobId: null, phase: 'starting', elapsed: 0 }
+    case 'start': return { ...state, busy: true, error: '', jobId: null, phase: 'starting', elapsed: 0, startedAt: Number.isFinite(action.at) ? action.at : null }
     case 'progress': return state.busy
       ? { ...state, jobId: action.jobId || state.jobId, phase: action.phase || state.phase, elapsed: Number(action.elapsed) || 0 }
       : state
-    case 'fail': return { ...state, busy: false, jobId: null, phase: '', elapsed: 0, error: action.error || 'Could not build the flow.' }
+    case 'fail': return { ...state, busy: false, jobId: null, phase: '', elapsed: 0, startedAt: null, error: action.error || 'Could not build the flow.' }
     case 'success': return generateInitial()
     default: return state
   }
 }
 /** Empty model/provider means Hermes' current model: do not turn it into an explicit override. */
-function generationBody({ prompt, flow = null, baseRevision = null, model = null, provider = null }) {
+/** Hermes' providers/models (gateway `model.options`) in the compact shape the build's MODEL GUIDE reads. */
+function llmModelsHint(payload) {
+  return modelGroups(payload).map((g) => ({
+    provider: g.slug, name: g.name, current: g.current,
+    current_model: g.current && payload && typeof payload.model === 'string' ? payload.model : '',
+    models: g.models.slice(0, 600).map((m) => {
+      const price = g.prices[m] || {}
+      const caps = g.caps[m] || {}
+      const row = { id: m }
+      if (typeof caps.reasoning === 'boolean') row.reasoning = caps.reasoning
+      if (price.input !== undefined && price.input !== null) row.input = String(price.input)
+      if (price.output !== undefined && price.output !== null) row.output = String(price.output)
+      return row
+    }),
+  }))
+}
+function generationBody({ prompt, flow = null, baseRevision = null, model = null, provider = null, llmModels = null }) {
   const body = { prompt: String(prompt || '').trim(), origin: 'ui' }
+  if (Array.isArray(llmModels) && llmModels.length) body.llm_models = llmModels
   if (flow && flow.id) {
     body.flow_id = flow.id
     if (baseRevision !== null && baseRevision !== undefined) body.base_revision = baseRevision
@@ -874,11 +896,17 @@ const GENERATE_POLL_MS = [200, 400, 700, 1000]
 const GENERATE_POLL_WAIT_S = 4
 const GENERATE_POLL_MISSES = 5
 const GENERATE_PHASES = {
-  starting: 'Starting…', thinking: 'Hermes is designing the flow', repairing: 'Fixing a validation error (one repair)',
+  starting: 'Starting…', models: 'Reading the available models', thinking: 'Hermes is designing the flow', repairing: 'Fixing a validation error (one repair)',
   saving: 'Saving the validated flow',
 }
+// The user's wait starts at Submit, not at a backend poll; wall time also catches up after a suspended window.
+function generationElapsed(generation, now) {
+  return generation.busy && Number.isFinite(generation.startedAt) && Number.isFinite(now)
+    ? Math.max(0, (now - generation.startedAt) / 1000)
+    : Math.max(0, Number(generation.elapsed) || 0)
+}
 function generationStatus(phase, elapsed) {
-  const secs = Math.max(0, Math.round(Number(elapsed) || 0))
+  const secs = Math.max(0, Math.floor(Number(elapsed) || 0))
   const time = secs >= 60 ? `${Math.floor(secs / 60)} min ${String(secs % 60).padStart(2, '0')} s` : `${secs} s`
   return `${GENERATE_PHASES[phase] || 'Working'} · ${time}`
 }
@@ -936,6 +964,8 @@ function typeSearchFields(t) {
  *  (name, label, type). Best match first: title hits outrank id/category hits, which outrank description/port hits;
  *  ties keep registry order. Pure, tested. */
 function filterTypes(types, query) {
+  // Other providers of a ready-made step are not separate entries: the node's Provider setting switches them.
+  types = (types || []).filter((t) => t && t.palette !== false)
   const q = (query || '').trim().toLowerCase()
   if (!q) return types
   const words = q.split(/\s+/)
@@ -1261,16 +1291,36 @@ function splitFields(fields, { spec, params = {}, connected = new Set(), modelFi
 
 /** Palette groups → sections: Ready-made presets first, built-ins, then Hermes tools and MCP servers. Each section
  *  has an icon and a colour; `flat` = items render without category sub-headers. Pure, tested. */
-function paletteSections(groups) {
-  const preset = groups.filter((g) => g.category === 'Presets')
+// Sub-groups of "Ready-made" (engine: presets.PRESET_GROUP_ORDER); unknown groups follow alphabetically.
+const PRESET_GROUP_ORDER = ['General', 'Image', 'Video', '3D', 'Audio']
+const READY_PREFIX = 'Ready · '
+
+/** The Presets category split by each node's `group` ("Ready · Image", …), in PRESET_GROUP_ORDER. Pure, tested. */
+function presetGroups(groups) {
+  const by = new Map()
+  for (const t of groups.flatMap((g) => g.items)) {
+    const name = String(t.group || 'General')
+    if (!by.has(name)) by.set(name, [])
+    by.get(name).push(t)
+  }
+  const rank = (g) => { const i = PRESET_GROUP_ORDER.indexOf(g); return i < 0 ? PRESET_GROUP_ORDER.length : i }
+  return [...by.keys()].sort((a, b) => rank(a) - rank(b) || a.localeCompare(b))
+    .map((g) => ({ category: READY_PREFIX + g, items: by.get(g) }))
+}
+
+function paletteSections(groups, recents = []) {
+  const presetRaw = groups.filter((g) => g.category === 'Presets')
+  const preset = presetGroups(presetRaw)
   const tools = groups.filter((g) => g.category.startsWith('Tools'))
   const mcp = groups.filter((g) => g.category.startsWith('MCP'))
-  const builtin = groups.filter((g) => !preset.includes(g) && !tools.includes(g) && !mcp.includes(g))
+  const builtin = groups.filter((g) => !presetRaw.includes(g) && !tools.includes(g) && !mcp.includes(g))
   const count = (list) => list.reduce((n, g) => n + g.items.length, 0)
   const sec = (id, label, counted, hint, groups, open, icon, color) =>
     ({ id, label, title: counted ? `${label} · ${count(groups)}` : label, count: count(groups), hint, groups, open, icon, color,
-      flat: id === 'ready' && groups.length === 1 })
+      flat: (id === 'ready' || id === 'recent') && groups.length === 1 })
   return [
+    sec('recent', 'Recently used', false, 'Your most recently added nodes.',
+      recents.length ? [{ category: 'Recently used', items: recents }] : [], true, 'history', 'var(--ui-accent)'),
     sec('ready', 'Ready-made', false, 'Curated nodes with good defaults — start here.', preset, true, 'star-full', categoryColor('Presets')),
     sec('basic', 'Basics', false, 'Inputs, LLM, text and data helpers, outputs.', builtin, true, 'layers', 'var(--ui-cyan)'),
     sec('tools', 'Hermes tools', true, 'Every tool Hermes has, one node each.', tools, false, 'tools', categoryColor('Tools')),
@@ -1285,7 +1335,7 @@ function paletteFolds(sections) {
   for (const sec of sections || []) {
     out.push({ key: `§${sec.id}`, def: !!sec.open })
     if (sec.flat) continue
-    for (const g of sec.groups) out.push({ key: g.category, def: sec.id === 'basic' })
+    for (const g of sec.groups) out.push({ key: g.category, def: sec.id === 'basic' || sec.id === 'ready' })
   }
   return out
 }
@@ -1392,6 +1442,39 @@ function indexTimings(payload) {
 }
 /** What a node usually takes: the measured average of the last runs with this type and model (never another
  *  model's), plus the spec's typical text. null when neither exists (notes, plain built-ins without hints). */
+/** "mcp__fal-ai__x" -> "Fal Ai"; built-in tools -> "Hermes". Display only (engine: presets.provider_label). */
+function toolProvider(type, description = '') {
+  const name = String(type || '').replace(/^tool:/, '')
+  if (!name.startsWith('mcp__')) return 'Hermes'
+  const server = name.split('__')[1] || ''
+  // the tool's own description spells the provider best ("… NanoGPT 3D models" -> "NanoGPT")
+  const esc = server.replace(/_/g, '-').replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+  const found = server.length >= 3 ? new RegExp(`\\b(${esc})\\b`, 'i').exec(String(description || '')) : null
+  if (found && found[1] !== found[1].toLowerCase()) return found[1]
+  return server.split(/[-_ ]+/).filter(Boolean).map((w) => (w.length <= 3 ? w.toUpperCase() : w[0].toUpperCase() + w.slice(1))).join(' ') || server
+}
+
+/** Second line of a node card: who runs it and with which model ("NanoGPT · Tripo H3.0", "Hermes · current
+ *  model"); for plain steps the category ("Logic", "Inputs"). `model` = label or id in effect. Pure, tested. */
+function nodeSubline(node, spec, model = '', auto = false) {
+  if (!spec || !node || node.type === 'note') return ''
+  const params = node.params || {}
+  if (node.type === 'llm.complete') {
+    const who = !isBlank(params.provider) ? String(params.provider) : 'Hermes'
+    return `${who} · ${!isBlank(params.model) ? String(params.model) : 'current model'}`
+  }
+  const who = spec.provider || (spec.kind === 'tool' ? toolProvider(node.type, spec.description) : '')
+  const what = model ? `${auto ? 'Auto · ' : ''}${model}` : auto ? 'Auto model' : ''
+  if (who) return what ? `${who} · ${what}` : who
+  return what || String(spec.category || '')
+}
+
+/** Footer of a node card: `{ cost, time }` — the cost estimate and how long it usually takes. Pure, tested. */
+function nodeFooter(cost, exp) {
+  const time = !exp ? '' : exp.n > 0 && exp.avg_ms !== null ? `≈ ${formatMs(exp.avg_ms)}` : typicalShort(exp.typical)
+  return { cost: cost && cost.label ? cost.label : '', time }
+}
+
 function expectedTime(spec, node, timings) {
   const type = (node && node.type) || (spec && spec.type) || ''
   const model = timingModel(spec, node)
@@ -1641,13 +1724,24 @@ const nodeTitle = (node, typesByName) => {
   const spec = typesByName[node.type]
   return node.title || (spec && spec.title) || node.type
 }
+/** A ready-made node pinned to a provider this setup lacks (`preset.x~server`) resolves to the same step on the
+ *  best available provider, so shared flows and templates open and run anywhere (engine: nodes.TypeIndex). */
+function providerFallback(byName) {
+  return new Proxy(byName, {
+    get: (target, key) => {
+      if (typeof key !== 'string' || key in target) return target[key]
+      return key.startsWith('preset.') && key.includes('~') ? target[key.split('~')[0]] : undefined
+    }
+  })
+}
+
 function indexTypes(payload) {
   const list = (payload && payload.types) || []
   const byName = {}
   for (const t of list) byName[t.type] = t
   return {
     list,
-    byName,
+    byName: providerFallback(byName),
     compat: (payload && payload.compat) || {},
     portTypes: (payload && payload.port_types) || {},
     categories: (payload && payload.categories) || [],
@@ -2093,7 +2187,7 @@ function makeApi(ctx) {
     saveFlow: (id, flow, base) => call('PUT', `flows/${encodeURIComponent(id)}`, { flow, base_revision: base, origin: 'ui' }),
     deleteFlow: (id) => call('DELETE', `flows/${encodeURIComponent(id)}`),
     duplicate: (id) => call('POST', `flows/${encodeURIComponent(id)}/duplicate`, { origin: 'ui' }),
-    layout: (id, base) => call('POST', `flows/${encodeURIComponent(id)}/layout`, { base_revision: base, origin: 'ui' }),
+    layout: (id, base, nodeSizes = {}) => call('POST', `flows/${encodeURIComponent(id)}/layout`, { base_revision: base, node_sizes: nodeSizes, origin: 'ui' }),
     messagingOptIn: (id, nodeId, enable, base, allowAttachments = false) => call('POST', `flows/${encodeURIComponent(id)}/messaging-optin`,
       { node_id: nodeId, enable: !!enable, allow_attachments: allowAttachments === true, base_revision: base, origin: 'ui' }),
     triggerStatus: (id) => call('GET', `flows/${encodeURIComponent(id)}/triggers`),
@@ -2231,6 +2325,24 @@ const CSS = `
 .fc-menu { position: absolute; top: 34px; left: 0; width: 330px; max-height: 70vh; overflow-y: auto; padding: 6px; border-radius: 10px;
   background: var(--ui-bg-elevated); box-shadow: var(--shadow-md, 0 0 0 1px var(--ui-stroke-secondary), 0 14px 40px rgba(0,0,0,.35)); z-index: 30; }
 .fc-menu.fc-ctx { width: 230px; }
+.fc-menu.fc-flows-menu { display: flex; flex-direction: column; width: 360px; max-height: min(72vh, 600px); overflow: hidden; padding: 0; }
+.fc-menu-top { flex: none; padding: 6px 6px 4px; border-bottom: 1px solid var(--ui-stroke-tertiary); }
+.fc-menu-search { display: flex; align-items: center; gap: 6px; padding: 5px 8px; border-radius: 7px; color: var(--ui-text-tertiary);
+  background: var(--ui-bg-tertiary, transparent); border: 1px solid var(--ui-stroke-tertiary); }
+.fc-menu-search:focus-within { border-color: var(--ui-accent); }
+.fc-menu-search input { flex: 1; min-width: 0; font: inherit; font-size: 12.5px; color: var(--ui-text-primary); background: none; border: 0; outline: none; }
+.fc-menu-tabs { display: flex; gap: 4px; margin-top: 6px; }
+.fc-menu-tab { flex: 1; display: flex; align-items: center; justify-content: center; gap: 6px; padding: 5px 8px; border-radius: 6px; cursor: pointer;
+  font-size: 12px; color: var(--ui-text-secondary); }
+.fc-menu-tab:hover, .fc-menu-tab:focus { outline: none; background: var(--ui-row-hover-background); color: var(--ui-text-primary); }
+.fc-menu-tab:focus-visible { outline: 2px solid var(--ui-accent); outline-offset: -2px; }
+.fc-menu-tab.on { background: var(--ui-selection-background); color: var(--ui-text-primary); font-weight: 600; }
+.fc-menu-count { font-size: 10.5px; font-weight: 400; color: var(--ui-text-tertiary); }
+.fc-menu-scroll { flex: 1; min-height: 0; overflow-y: auto; padding: 4px 6px 6px; }
+.fc-menu-more { color: var(--ui-text-tertiary); font-size: 12px; }
+.fc-menu-foot { flex: none; display: flex; gap: 2px; padding: 4px 6px; border-top: 1px solid var(--ui-stroke-tertiary); }
+.fc-menu-foot .fc-menu-item { flex: 1; justify-content: center; gap: 6px; padding: 6px 4px; font-size: 12px; }
+.fc-menu-foot .fc-menu-item .fc-menu-name { flex: none; }
 .fc-menu-label { padding: 8px 8px 4px; font-size: 10.5px; font-weight: 600; letter-spacing: .04em; text-transform: uppercase; color: var(--ui-text-tertiary); }
 .fc-menu-item { display: flex; align-items: center; gap: 8px; padding: 6px 8px; border-radius: 6px; cursor: pointer; color: var(--ui-text-secondary); }
 .fc-menu-item:hover { background: var(--ui-row-hover-background); color: var(--ui-text-primary); }
@@ -2424,15 +2536,24 @@ const CSS = `
 .fc-generate-head .codicon { color: var(--ui-accent); }
 .fc-generate-card > .fc-help { margin: 0 0 10px; }
 .fc-generate-card textarea { min-height: 86px; max-height: 220px; }
-.fc-generate-controls { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: end; gap: 10px; margin-top: 10px; }
+.fc-generate-controls { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: start; gap: 10px; margin-top: 10px; }
+.fc-generate-controls > .fc-row { padding-top: 17px; }
 .fc-generate-model > label { display: block; margin-bottom: 4px; color: var(--ui-text-tertiary); font-size: 11px; }
 .fc-generate-model .fc-model-btn { width: 100%; }
-.fc-generate-card .fc-model-pop { top: auto; bottom: 34px; }
+/* The composer's model list floats over the dialog (fixed, placed by ModelPicker): it never grows the card. */
+.fc-generate-card .fc-model-pop { position: fixed; z-index: 90; right: auto; }
 .fc-generate-error { margin-top: 9px; padding: 7px 9px; border-radius: 7px; color: var(--ui-red); white-space: pre-wrap;
   background: color-mix(in srgb, var(--ui-red) 11%, transparent); font-size: 11.5px; user-select: text; }
 .fc-generate-busy { margin-top: 8px; color: var(--ui-text-tertiary); font-size: 11px; }
-.fc-generate-modal { width: min(620px, calc(100% - 32px)); }
-.fc-hint.fc-generate-hint { width: min(540px, calc(100% - 32px)); pointer-events: auto; }
+[data-fc-generate-dialog] { padding: clamp(12px, 6vh, 56px) 16px; }
+.fc-generate-modal { width: min(620px, 100%); max-height: 100%; overflow-y: auto; overscroll-behavior: contain; border-radius: 12px; }
+.fc-generate-hint { max-height: calc(100% - 32px); overflow-y: auto; }
+@media (max-width: 600px) {
+  .fc-generate-controls { grid-template-columns: minmax(0, 1fr); }
+  .fc-generate-controls > .fc-row { padding-top: 0; justify-content: flex-end; }
+}
+.fc-hint.fc-generate-hint { width: min(540px, calc(100% - 32px)); pointer-events: auto;
+  inset: 0; margin: auto; height: fit-content; transform: none; }  /* no transform: the floating model list stays unclipped */
 .fc-generate-hint .fc-hint-title { margin: 0 0 8px; }
 .fc-welcome .fc-generate-card { margin: 18px auto 8px; max-width: 580px; }
 .fc-check.disabled { opacity: .55; cursor: default; }
@@ -2538,13 +2659,17 @@ const CSS = `
 .fc-node.note { background: color-mix(in srgb, var(--ui-yellow) 10%, var(--ui-bg-elevated)); }
 @keyframes fc-pulse { 0%, 100% { box-shadow: 0 0 0 2px var(--ui-accent), 0 0 14px color-mix(in srgb, var(--ui-accent) 35%, transparent); }
   50% { box-shadow: 0 0 0 2px var(--ui-accent), 0 0 32px color-mix(in srgb, var(--ui-accent) 62%, transparent); } }
-.fc-node-head { height: ${HEAD_H}px; display: flex; align-items: center; gap: 8px; padding: 0 10px 0 7px; border-radius: 10px 10px 0 0;
-  background: color-mix(in srgb, var(--fc-cat) 13%, var(--ui-bg-elevated));
-  border-bottom: 1px solid color-mix(in srgb, var(--fc-cat) 26%, var(--ui-stroke-tertiary)); }
+.fc-node-head { height: ${HEAD_H}px; display: flex; align-items: center; gap: 9px; padding: 0 10px 0 9px; border-radius: 10px 10px 0 0;
+  border-bottom: 1px solid var(--ui-stroke-tertiary); }
+.fc-node-titles { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 1px; }
+.fc-node-sub { font-size: 11px; color: var(--ui-text-tertiary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.fc-node-foot { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 5px 10px 6px;
+  border-top: 1px solid var(--ui-stroke-tertiary); font-size: 10.5px; color: var(--ui-text-tertiary); font-variant-numeric: tabular-nums; }
+.fc-node-time { flex: none; }
 .fc-node-icon { flex: none; display: inline-flex; align-items: center; justify-content: center; width: 22px; height: 22px; border-radius: 6px;
   background: color-mix(in srgb, var(--fc-cat) 24%, transparent); color: var(--fc-cat); }
 .fc-node-icon .codicon { font-size: 13px; }
-.fc-node-title { flex: 1; min-width: 0; font-size: 12.5px; font-weight: 600; letter-spacing: .005em; color: var(--ui-text-primary);
+.fc-node-title { min-width: 0; font-size: 13px; font-weight: 600; letter-spacing: .005em; color: var(--ui-text-primary);
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .fc-node-issue { color: var(--ui-yellow); font-size: 13px; flex: none; }
 .fc-node-loop { flex: none; color: color-mix(in srgb, var(--ui-purple) 55%, var(--ui-red)); }
@@ -2554,9 +2679,8 @@ const CSS = `
 .fc-iter-n { font-size: 10.5px; font-variant-numeric: tabular-nums; color: var(--ui-text-tertiary); text-align: right; }
 .fc-iter-msg { font-size: 11.5px; color: var(--ui-text-tertiary); font-style: italic; overflow-wrap: anywhere; }
 .fc-iter-msg.bad { color: var(--ui-red); font-style: normal; }
-.fc-node-cost { flex: none; max-width: 76px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; padding: 1px 6px;
-  border-radius: 999px; border: 1px solid var(--ui-stroke-primary); font-size: 10.5px; font-weight: 500; color: var(--ui-text-secondary);
-  font-variant-numeric: tabular-nums; cursor: help; }
+.fc-node-cost { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 10.5px; font-weight: 500;
+  color: var(--ui-text-secondary); font-variant-numeric: tabular-nums; cursor: help; }
 .fc-cost { display: flex; align-items: center; gap: 6px; margin: 2px 0 10px; padding: 5px 8px; border-radius: 7px;
   background: color-mix(in srgb, var(--ui-yellow) 9%, transparent); font-size: 12px; color: var(--ui-text-secondary); }
 .fc-cost .codicon { color: var(--ui-yellow); }
@@ -2739,7 +2863,10 @@ const CSS = `
 .fc-model-item > span:first-child { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .fc-model-item:hover { background: var(--ui-bg-tertiary); color: var(--ui-text-primary); }
 .fc-model-item.active { color: var(--ui-accent); }
+.fc-model-item[data-highlighted="true"] { background: var(--ui-bg-tertiary); color: var(--ui-text-primary); }
 .fc-model-note { padding: 6px 8px; }
+[data-fc-flow-picker] .fc-model-pop { position: static; margin-top: 4px; }
+[data-fc-flow-picker] .fc-model-list { max-height: min(280px, 35vh); }
 .fc-input { width: 100%; font: inherit; font-size: 12.5px; color: var(--ui-text-primary); background: var(--ui-bg-elevated);
   border: 1px solid var(--ui-stroke-secondary); border-radius: 7px; padding: 6px 8px; outline: none; }
 .fc-input:focus { border-color: var(--ui-accent); }
@@ -3020,7 +3147,14 @@ function useMediaVisible(ref) {
     const observer = new IntersectionObserver((entries) => setVisible(entries.some((e) => e.isIntersecting)),
       { rootMargin: '100px' })
     observer.observe(ref.current)
-    return () => observer.disconnect()
+    // The observer's first report can come late (busy or throttled renderer, headless virtual time): a player
+    // that is already on screen when it mounts loads at once instead of waiting for it.
+    const early = setTimeout(() => {
+      const r = ref.current && ref.current.getBoundingClientRect()
+      if (r && r.width > 0 && r.bottom > -100 && r.top < (window.innerHeight || 0) + 100 &&
+          r.right > -100 && r.left < (window.innerWidth || 0) + 100) setVisible(true)
+    }, 50)
+    return () => { clearTimeout(early); observer.disconnect() }
   }, [ref])
   return visible
 }
@@ -3103,6 +3237,31 @@ function TipCard({ tip }) {
 function withTip(tip, el, side = 'top', key) {
   if (!tip || !el || !richTips()) return el
   return h(sdk.Tip, { key, label: h(TipCard, { tip }), side, sideOffset: 8, className: 'fc-tt-bubble' }, el)
+}
+/** While a wire is being pulled nothing may pop up. Every rich tip Arachne renders carries one of its own bubble
+ *  classes (`fc-tt-bubble`, `fc-tip-bubble`), so the canvas renders this rule only for the length of the drag:
+ *  it hides only our bubbles, never touches app markup, and lifts the moment the wire is dropped or cancelled. */
+const WIRE_TIP_CSS = '.fc-tt-bubble, .fc-tip-bubble { display: none !important; }'
+/** Native `title` tips inside the plugin are muted for the drag and restored afterwards, but only where the
+ *  title is still the one we muted (a re-render that set a new title wins). Returns the restore function. */
+function muteTitles(scope) {
+  if (!scope || typeof scope.querySelectorAll !== 'function') return () => {}
+  const saved = []
+  for (const el of scope.querySelectorAll('[title]:not([title=""])')) {
+    saved.push({ el, text: el.getAttribute('title') })
+    el.setAttribute('title', '')
+  }
+  return () => {
+    for (const { el, text } of saved) if (el.isConnected && el.getAttribute('title') === '') el.setAttribute('title', text)
+  }
+}
+/** Mutes the plugin's native titles exactly while a wire drag is live (`ref`: any element inside the page). */
+function useWireTipGuard(wire, ref) {
+  useEffect(() => {
+    if (!wire) return undefined
+    const el = ref.current
+    return muteTitles(el && el.closest ? el.closest('.fc-root') || el : el)
+  }, [!!wire])
 }
 /** Current time, re-rendering every `ms` while `active` (live clocks on running nodes and runs). */
 function useNow(active, ms = 1000) {
@@ -3272,7 +3431,10 @@ function useMenuKeys(ref, onClose, returnFocus) {
           (now.includes(row) ? row : now[Math.min(at, now.length - 1)])
         if (target) focusEl(target)
       }, 0)
-    } else focusEl(rows[next])
+    } else {
+      focusEl(rows[next])
+      rows[next]?.scrollIntoView?.({ block: 'nearest', inline: 'nearest' })
+    }
   }
 }
 
@@ -3312,14 +3474,53 @@ function ContextMenu({ menu, items, onClose }) {
 }
 
 // ---------------------------------------------------------------- header + flow menu
+const FLOW_MENU_LIMIT = 8          // recent flows shown before "Show all"
+/** Every word of `query` appears in one of `texts` (case-insensitive). Pure, tested. */
+function menuMatch(query, ...texts) {
+  const words = String(query || '').toLowerCase().split(/\s+/).filter(Boolean)
+  if (!words.length) return true
+  const hay = texts.filter(Boolean).join(' ').toLowerCase()
+  return words.every((w) => hay.includes(w))
+}
+/** What the flows menu lists: recent flows (or all), templates split into yours/built-in, all filtered by the
+ *  search. With a search both kinds show at once, so the tab never hides a match. Pure, tested. */
+function flowMenuModel({ flows, templates, query = '', tab = 'flows', showAll = false, limit = FLOW_MENU_LIMIT }) {
+  const list = Array.isArray(flows) ? flows.slice() : []
+  list.sort((a, b) => String(b.updated_at || '').localeCompare(String(a.updated_at || '')))
+  const { own, builtin } = splitTemplates(templates)
+  const searching = String(query || '').trim() !== ''
+  const fl = list.filter((f) => menuMatch(query, f.name || 'Untitled flow'))
+  const tpl = (arr) => arr.filter((x) => menuMatch(query, x.name || x.id, x.description))
+  const ownHit = tpl(own)
+  const builtinHit = tpl(builtin)
+  const showFlows = searching || tab !== 'templates'
+  const showTemplates = searching || tab === 'templates'
+  const cut = !searching && !showAll && fl.length > limit
+  return {
+    searching,
+    counts: { flows: list.length, templates: own.length + builtin.length },
+    flows: showFlows ? (cut ? fl.slice(0, limit) : fl) : [],
+    moreFlows: showFlows && cut ? fl.length - limit : 0,
+    own: showTemplates ? ownHit : [],
+    builtin: showTemplates ? builtinHit : [],
+    empty: searching && !fl.length && !ownHit.length && !builtinHit.length
+  }
+}
+
 function FlowMenu({ flows, current, templates, onOpen, onNew, onFromTemplate, onDuplicate, onDelete, onClose,
   onSaveTemplate, onEditTemplate, onDeleteTemplate, returnFocus }) {
   const ref = useRef(null)
+  const searchRef = useRef(null)
   const [confirmDelete, setConfirmDelete] = useState(false)
   const [confirmTemplate, setConfirmTemplate] = useState(null)
+  const [query, setQuery] = useState('')
+  const [tab, setTabState] = useState(SHARED.flowMenuTab || 'flows')
+  const [showAll, setShowAll] = useState(false)
   useDismiss(ref, onClose, '.fc-menu-toggle')
   const onKeyDown = useMenuKeys(ref, onClose, returnFocus)
-  const { own, builtin } = splitTemplates(templates)
+  useEffect(() => { focusEl(searchRef.current) }, [])
+  const setTab = (next) => { SHARED.flowMenuTab = next; setTabState(next) }
+  const model = flowMenuModel({ flows, templates, query, tab, showAll })
   const templateItem = (t) => {
     const mine = t.source === 'user'
     const armed = mine && confirmTemplate === t.id
@@ -3354,34 +3555,153 @@ function FlowMenu({ flows, current, templates, onOpen, onNew, onFromTemplate, on
       }
     }, h(Icon, { name: 'trash' })) : null)
   }
-  return h('div', { ref, className: 'fc-menu', role: 'menu', 'aria-label': 'Flows', tabIndex: -1, onKeyDown },
-    h('div', { className: 'fc-menu-label' }, 'Your flows'),
-    flows.length === 0 ? h('div', { className: 'fc-menu-empty' }, 'No flows yet.') : null,
-    flows.map((f) => {
-      const st = f.last_run ? RUN_STATUS[f.last_run.status] : null
-      return h('div', {
-        key: f.id, className: `fc-menu-item${current && f.id === current.id ? ' active' : ''}`,
-        role: 'menuitem', tabIndex: -1, 'aria-current': current && f.id === current.id ? 'true' : undefined,
-        onClick: () => onOpen(f.id)
-      },
-        h(Icon, { name: st ? st.icon : 'circle-large-outline', style: { color: st ? st.color : 'var(--ui-text-quaternary)' } }),
-        h('span', { className: 'fc-menu-name' }, f.name || 'Untitled flow'),
-        h('span', { className: 'fc-menu-meta' }, `${f.node_count} nodes · ${ago(f.updated_at)}`))
-    }),
-    h('div', { className: 'fc-menu-sep' }),
-    h('div', { className: 'fc-menu-item', role: 'menuitem', tabIndex: -1, onClick: onNew },
-      h(Icon, { name: 'add' }), h('span', { className: 'fc-menu-name' }, 'New blank flow')),
-    own.length > 0 ? h('div', { className: 'fc-menu-label' }, 'Your templates') : null,
-    own.map(templateItem),
-    builtin.length > 0 ? h('div', { className: 'fc-menu-label' }, own.length ? 'Built-in templates' : 'Start from a template') : null,
-    builtin.map(templateItem),
-    current ? h('div', { className: 'fc-menu-sep' }) : null,
-    current && onSaveTemplate ? h('div', { className: 'fc-menu-item', role: 'menuitem', tabIndex: -1, 'data-fc-save-template': '1', onClick: onSaveTemplate },
-      h(Icon, { name: 'save-as' }), h('span', { className: 'fc-menu-name' }, 'Save as template…')) : null,
-    current ? h('div', { className: 'fc-menu-item', role: 'menuitem', tabIndex: -1, onClick: onDuplicate },
-      h(Icon, { name: 'copy' }), h('span', { className: 'fc-menu-name' }, 'Duplicate this flow')) : null,
-    current ? h('div', { className: 'fc-menu-item danger', role: 'menuitem', tabIndex: -1, onClick: () => (confirmDelete ? onDelete() : setConfirmDelete(true)) },
-      h(Icon, { name: 'trash' }), h('span', { className: 'fc-menu-name' }, confirmDelete ? 'Click again to delete' : 'Delete this flow')) : null)
+  const flowItem = (f) => {
+    const st = f.last_run ? RUN_STATUS[f.last_run.status] : null
+    return h('div', {
+      key: f.id, className: `fc-menu-item${current && f.id === current.id ? ' active' : ''}`, 'data-fc-flow-item': f.id,
+      role: 'menuitem', tabIndex: -1, 'aria-current': current && f.id === current.id ? 'true' : undefined,
+      title: f.name || 'Untitled flow', onClick: () => onOpen(f.id)
+    },
+      h(Icon, { name: st ? st.icon : 'circle-large-outline', style: { color: st ? st.color : 'var(--ui-text-quaternary)' } }),
+      h('span', { className: 'fc-menu-name' }, f.name || 'Untitled flow'),
+      h('span', { className: 'fc-menu-meta' }, `${f.node_count} nodes · ${ago(f.updated_at)}`))
+  }
+  const firstHit = () => model.flows[0] ? () => onOpen(model.flows[0].id)
+    : [...model.own, ...model.builtin].find((x) => x.available !== false)
+      ? () => onFromTemplate([...model.own, ...model.builtin].find((x) => x.available !== false).id) : null
+  const tabButton = (id, label, count) => h('div', {
+    role: 'menuitem', tabIndex: -1, className: `fc-menu-tab${tab === id && !model.searching ? ' on' : ''}`,
+    'data-fc-menu-tab': id, 'aria-pressed': tab === id ? 'true' : 'false', onClick: () => { setTab(id); setShowAll(false) }
+  }, label, h('span', { className: 'fc-menu-count' }, String(count)))
+  const label = (text) => h('div', { className: 'fc-menu-label' }, text)
+  return h('div', { ref, className: 'fc-menu fc-flows-menu', role: 'menu', 'aria-label': 'Flows', tabIndex: -1, onKeyDown },
+    h('div', { className: 'fc-menu-top' },
+      h('div', { className: 'fc-menu-search' }, h(Icon, { name: 'search' }),
+        h('input', {
+          ref: searchRef, value: query, placeholder: 'Search flows and templates…', 'data-fc-menu-search': '1',
+          'aria-label': 'Search flows and templates',
+          onChange: (e) => setQuery(e.target.value),
+          onKeyDown: (e) => {
+            if (e.key === 'Enter') {
+              e.preventDefault()
+              e.stopPropagation()
+              const go = firstHit()
+              if (go) go()
+            } else if (['Home', 'End', 'ArrowLeft', 'ArrowRight', ' ', 'Spacebar'].includes(e.key)) e.stopPropagation()
+            else if (e.key === 'Escape' && query) { e.stopPropagation(); setQuery('') }
+          }
+        })),
+      model.searching ? null : h('div', { className: 'fc-menu-tabs' },
+        tabButton('flows', 'Your flows', model.counts.flows), tabButton('templates', 'Templates', model.counts.templates))),
+    h('div', { className: 'fc-menu-scroll' },
+      model.searching ? null : h('div', { className: 'fc-menu-item', role: 'menuitem', tabIndex: -1, onClick: onNew },
+        h(Icon, { name: 'add' }), h('span', { className: 'fc-menu-name' }, 'New blank flow')),
+      model.empty ? h('div', { className: 'fc-menu-empty' }, `Nothing matches “${query.trim()}”.`) : null,
+      model.searching && model.flows.length ? label('Your flows') : null,
+      !model.searching && tab === 'flows' && !flows.length ? h('div', { className: 'fc-menu-empty' }, 'No flows yet. Start blank or from a template.') : null,
+      model.flows.map(flowItem),
+      model.moreFlows > 0 ? h('div', {
+        className: 'fc-menu-item fc-menu-more', role: 'menuitem', tabIndex: -1, 'data-fc-flows-more': '1', onClick: () => setShowAll(true)
+      }, h(Icon, { name: 'chevron-down' }), h('span', { className: 'fc-menu-name' }, `Show all ${model.counts.flows} flows`)) : null,
+      model.own.length ? label('Your templates') : null,
+      model.own.map(templateItem),
+      model.builtin.length ? label(model.searching || model.own.length ? 'Built-in templates' : 'Start from a template') : null,
+      model.builtin.map(templateItem)),
+    current ? h('div', { className: 'fc-menu-foot', 'aria-label': 'This flow' },
+      onSaveTemplate ? h('div', { className: 'fc-menu-item', role: 'menuitem', tabIndex: -1, 'data-fc-save-template': '1', title: 'Save this flow as a template…', onClick: onSaveTemplate },
+        h(Icon, { name: 'save-as' }), h('span', { className: 'fc-menu-name' }, 'As template…')) : null,
+      h('div', { className: 'fc-menu-item', role: 'menuitem', tabIndex: -1, 'data-fc-duplicate': '1', title: 'Duplicate this flow', onClick: onDuplicate },
+        h(Icon, { name: 'copy' }), h('span', { className: 'fc-menu-name' }, 'Duplicate')),
+      h('div', { className: 'fc-menu-item danger', role: 'menuitem', tabIndex: -1, 'data-fc-delete-flow': '1', title: 'Delete this flow',
+        onClick: () => (confirmDelete ? onDelete() : setConfirmDelete(true)) },
+      h(Icon, { name: 'trash' }), h('span', { className: 'fc-menu-name' }, confirmDelete ? 'Click again' : 'Delete'))) : null)
+}
+
+/** After flow trigger: searchable list of every flow (like the model picker). Stores the flow id. */
+function FlowPicker({ api, value, ownId, onChange }) {
+  const [open, setOpen] = useState(false)
+  const [query, setQuery] = useState('')
+  const [flows, setFlows] = useState(null)
+  const [error, setError] = useState(null)
+  const [highlight, setHighlight] = useState(0)
+  const wrapRef = useRef(null)
+  const request = useRef(0)
+  const load = () => {
+    if (!api || typeof api.flows !== 'function') return
+    const ticket = ++request.current
+    api.flows().then((res) => {
+      if (ticket !== request.current) return
+      setFlows((res && res.flows) || [])
+      setError(null)
+    }, (e) => { if (ticket === request.current) setError(parseRestError(e).message) })
+  }
+  useEffect(() => { load(); return () => { request.current++ } }, [api])
+  useEffect(() => {
+    if (!open) return undefined
+    const away = (e) => { if (wrapRef.current && !wrapRef.current.contains(e.target)) setOpen(false) }
+    document.addEventListener('pointerdown', away, true)
+    return () => document.removeEventListener('pointerdown', away, true)
+  }, [open])
+  const others = (flows || []).filter((f) => f.id !== ownId)
+  const chosen = flowPickerChoice(others, value)
+  const shown = flowMenuModel({ flows: others, templates: [], query, showAll: true }).flows
+  const index = Math.min(highlight, Math.max(0, shown.length - 1))
+  const listId = `fc-flow-list-${ownId || 'picker'}`
+  const optionId = (f) => `${listId}-${f.id}`
+  const close = () => { setOpen(false); focusEl(wrapRef.current && wrapRef.current.querySelector('button')) }
+  const pick = (f) => { onChange(f.id); close(); setQuery(''); setHighlight(0) }
+  useLayoutEffect(() => {
+    // Keep the whole chooser in the scrollable inspector, even with many flows in a short window.
+    if (open) wrapRef.current?.querySelector('.fc-model-pop')?.scrollIntoView({ block: 'nearest' })
+  }, [open, flows, query])
+  useEffect(() => {
+    if (open && wrapRef.current) wrapRef.current.querySelector('[data-highlighted="true"]')?.scrollIntoView({ block: 'nearest' })
+  }, [open, highlight, query])
+  return h('div', { className: 'fc-model', ref: wrapRef, 'data-fc-flow-picker': '1' },
+    h('button', { type: 'button', className: `fc-input fc-model-btn${open ? ' open' : ''}`, 'aria-haspopup': 'listbox', 'aria-expanded': open,
+      onClick: () => { if (!open) { setQuery(''); setHighlight(0); load() }; setOpen(!open) } },
+    chosen ? h('span', null, chosen.name || 'Untitled flow') : h('span', { className: 'fc-muted' }, isBlank(value) ? 'Choose a flow…' : `${value} (not found)`),
+    chosen ? h('span', { className: 'fc-model-prov' }, `${chosen.node_count} nodes`) : null,
+    h(Icon, { name: 'chevron-down' })),
+    open ? h('div', { className: 'fc-model-pop' },
+      h('div', { className: 'fc-model-search' }, h(Icon, { name: 'search' }),
+        h('input', { autoFocus: true, value: query, placeholder: 'Search flows…', 'data-fc-flow-search': '1',
+          role: 'combobox', 'aria-label': 'Search flows', 'aria-controls': listId, 'aria-expanded': true,
+          'aria-activedescendant': shown[index] ? optionId(shown[index]) : undefined,
+          onChange: (e) => { setQuery(e.target.value); setHighlight(0) },
+          onKeyDown: (e) => {
+            e.stopPropagation()
+            if (e.key === 'Escape') { e.preventDefault(); close() }
+            else if (e.key === 'Tab') setOpen(false)
+            else if (e.key === 'Enter' && shown[index]) { e.preventDefault(); pick(shown[index]) }
+            else if ((e.key === 'ArrowDown' || e.key === 'ArrowUp') && shown.length) {
+              e.preventDefault()
+              setHighlight((index + (e.key === 'ArrowDown' ? 1 : -1) + shown.length) % shown.length)
+            }
+          } }),
+        h('button', { type: 'button', className: 'fc-mini', title: 'Refresh flows', 'aria-label': 'Refresh flows',
+          'data-fc-flow-refresh': '1', onClick: load }, h(Icon, { name: 'refresh' }))),
+      h('div', { className: 'fc-model-list', id: listId, role: 'listbox', 'aria-label': 'Other flows' },
+        error ? h('div', { className: 'fc-help fc-bad fc-model-note', 'data-fc-flow-error': '1' }, `Could not load flows: ${error}`) : null,
+        !flows && !error ? h('div', { className: 'fc-help fc-model-note' }, 'Loading flows…') : null,
+        flows && !shown.length ? h('div', { className: 'fc-help fc-model-note' }, query ? 'No flow matches.' : 'No other flows yet.') : null,
+        shown.map((f, i) => {
+          const st = f.last_run ? RUN_STATUS[f.last_run.status] : null
+          return h('div', { key: f.id, id: optionId(f), role: 'option', 'aria-selected': !!(chosen && chosen.id === f.id),
+            'data-fc-flow-option': f.id, 'data-highlighted': i === index ? 'true' : 'false', title: `${f.name || 'Untitled flow'} · ${f.id}`,
+            className: `fc-model-item${chosen && chosen.id === f.id ? ' active' : ''}`, onMouseEnter: () => setHighlight(i), onClick: () => pick(f) },
+          h('span', null, h(Icon, { name: st ? st.icon : 'circle-large-outline', style: { color: st ? st.color : 'var(--ui-text-quaternary)', marginRight: 6 } }), f.name || 'Untitled flow'),
+          h('span', { className: 'fc-model-prov' }, `${f.node_count} nodes · ${ago(f.updated_at)}`))
+        }))) : null)
+}
+/** The flow a stored After-flow value names: by id, else by (unique) name. Pure, tested. */
+function flowPickerChoice(flows, value) {
+  if (!Array.isArray(flows) || isBlank(value)) return null
+  const v = String(value).trim()
+  const byId = flows.find((f) => f.id === v)
+  if (byId) return byId
+  const byName = flows.filter((f) => String(f.name || '').trim().toLowerCase() === v.toLowerCase())
+  return byName.length === 1 ? byName[0] : null
 }
 
 function SaveIndicator({ state, error }) {
@@ -3516,7 +3836,7 @@ function Palette({ types, recent, onAdd, folds, onFolds, timings }) {
   const items = useMemo(() => filterTypes(types.list, query), [types.list, query])
   const recents = useMemo(() => resolveRecentTypes(items, recent), [items, recent])
   const groups = useMemo(() => groupByCategory(items), [items])
-  const sections = useMemo(() => paletteSections(groups), [groups])
+  const sections = useMemo(() => paletteSections(groups, recents), [groups, recents])
   const searching = query.trim().length > 0
   const best = searching && items[0] ? items[0].type : null // what Enter adds; highlighted while searching
   const allOpen = !searching && allFoldsOpen(sections, open)
@@ -3548,32 +3868,35 @@ function Palette({ types, recent, onAdd, folds, onFolds, timings }) {
       }, h(Icon, { name: allOpen ? 'collapse-all' : 'expand-all' }))),
     h('div', { className: 'fc-palette-list' },
       groups.length === 0 ? h('div', { className: 'fc-muted', style: { padding: 12 } }, 'No node matches.') : null,
-      recents.length > 0 ? h('div', { 'data-fc-recent': '1' },
-        h('div', { className: 'fc-cat' }, h(Icon, { name: 'history' }), 'Recently used', h('span', { className: 'fc-count' }, String(recents.length))),
-        recents.map((t) => item(t, `recent:${t.type}`))) : null,
       sections.map((sec) => {
         const secKey = `§${sec.id}`
         const secOpen = searching || foldOpen(open, secKey, sec.open)
-        return h('div', { key: sec.id, className: 'fc-pal-sec', 'data-fc-section': sec.id, style: { '--fc-sec': sec.color } },
+        return h('div', { key: sec.id, className: 'fc-pal-sec', 'data-fc-section': sec.id,
+          'data-fc-recent': sec.id === 'recent' ? '1' : undefined, style: { '--fc-sec': sec.color } },
           h('div', {
-            className: 'fc-pal-sec-head', title: sec.hint, role: 'button', 'aria-expanded': secOpen,
-            onClick: () => setOpen((o) => ({ ...o, [secKey]: !secOpen }))
+            className: 'fc-pal-sec-head', title: sec.hint, role: 'button', tabIndex: 0, 'aria-expanded': secOpen,
+            onClick: () => setOpen((o) => ({ ...o, [secKey]: !secOpen })),
+            onKeyDown: (e) => {
+              if (!activatesOn(e.key)) return
+              e.preventDefault()
+              setOpen((o) => ({ ...o, [secKey]: !secOpen }))
+            }
           },
           h(Icon, { name: secOpen ? 'chevron-down' : 'chevron-right', className: 'fc-pal-chev' }),
           h(Icon, { name: sec.icon, className: 'fc-pal-sec-icon' }),
           h('span', { className: 'fc-pal-sec-title' }, sec.label),
           h('span', { className: 'fc-count' }, String(sec.count))),
           secOpen ? sec.groups.map((g) => {
-            const label = g.category.replace(/^(Tools|MCP) · /, '')
+            const label = g.category.replace(/^(Tools|MCP|Ready) · /, '')
             if (sec.flat) return h('div', { key: g.category }, g.items.map((t) => item(t, t.type)))
-            const isOpen = searching || foldOpen(open, g.category, sec.id === 'basic')
+            const isOpen = searching || foldOpen(open, g.category, sec.id === 'basic' || sec.id === 'ready')
             return h('div', { key: g.category },
               h('div', { className: 'fc-cat', role: 'button', 'aria-expanded': isOpen, onClick: () => setOpen((o) => ({ ...o, [g.category]: !isOpen })) },
                 h(Icon, { name: isOpen ? 'chevron-down' : 'chevron-right' }), label, h('span', { className: 'fc-count' }, String(g.items.length))),
               isOpen ? g.items.map((t) => item(t, t.type)) : null)
           }) : null)
       })),
-    h('div', { className: 'fc-palette-foot' }, `${types.list.length} nodes · ${toolCount} from Hermes tools`))
+    h('div', { className: 'fc-palette-foot' }, `${types.list.filter((t) => t.palette !== false).length} nodes · ${toolCount} from Hermes tools`))
 }
 
 function QuickSearch({ types, recent, position, onAdd, onClose }) {
@@ -3686,6 +4009,10 @@ const NodeCard = memo(function NodeCard(p) {
   const cost = mInfo ? estimateCost(mInfo.cost, effectiveValues(spec, node.params, mInfo.fields || {}))
     : llm ? estimateLlmCost(llm, node.params) : null
   const exp = isNote ? null : expectedTime(spec, node, p.timings)
+  const ms = modelSetting(spec, node.params)
+  const modelLabel = mInfo && mInfo.label ? String(mInfo.label) : mi && mi.model ? String(mi.model) : ''
+  const sub = nodeSubline(node, spec, modelLabel, !!(ms && ms.auto))
+  const foot = isNote ? { cost: '', time: '' } : nodeFooter(cost, exp)
   const wires = p.wires || {}
 
   const port = (pt, side) => {
@@ -3840,8 +4167,9 @@ const NodeCard = memo(function NodeCard(p) {
       lines: [`Repeats for every item of “${(p.nameOf && p.nameOf(p.loopOwner)) || 'For each'}”.`, 'A Collect after it gathers the results.'] },
     h('span', { className: 'fc-tipwrap fc-node-loop', 'data-fc-loop': p.loopOwner,
       title: nativeTitle({ title: 'Runs once per item', lines: ['A Collect after it gathers the results.'] }) }, h(Icon, { name: 'sync' }))) : null,
-    h('span', { className: 'fc-node-title', title: (spec && spec.description) || title }, title),
-    cost && !status ? h('span', { className: 'fc-node-cost', 'data-fc-node-cost': cost.label, title: cost.lines.join('\n') }, cost.label) : null,
+    h('span', { className: 'fc-node-titles' },
+      h('span', { className: 'fc-node-title', title: (spec && spec.description) || title }, title),
+      sub ? h('span', { className: 'fc-node-sub', 'data-fc-node-sub': '1', title: sub }, sub) : null),
     issue && !status ? withTip({ id: 'issue', title: 'Not ready to run', tone: 'warn', icon: 'warning', lines: [issue] },
       h('span', { className: 'fc-tipwrap', 'data-fc-issue': '1', title: nativeTitle({ title: 'Not ready to run', lines: [issue] }) },
         h(Icon, { name: 'warning', className: 'fc-node-issue' }))) : null,
@@ -3859,10 +4187,23 @@ const NodeCard = memo(function NodeCard(p) {
     h('span', { key: `k:${i}`, className: 'fc-summary-key' }, k),
     h('span', { key: `v:${i}`, className: 'fc-summary-val', title: String(v) }, v)])) : null,
   !spec && !isNote ? h('div', { className: 'fc-node-error' }, `Unknown node type “${node.type}”. The tool may be missing or blocked.`) : null,
-  preview)
+  preview,
+  foot.cost || foot.time ? h('div', { className: 'fc-node-foot', 'data-fc-node-foot': '1' },
+    foot.cost ? h('span', { className: 'fc-node-cost', 'data-fc-node-cost': foot.cost, title: cost.lines.join('\n') }, foot.cost)
+      : h('span', { className: 'fc-node-free' }, ''),
+    foot.time ? h('span', { className: 'fc-node-time', title: 'Usual duration' }, foot.time) : null) : null)
 }, nodeCardPropsEqual)
 
 // ---------------------------------------------------------------- canvas
+/** Current rendered card bounds in world pixels. Client rectangles would shrink when the canvas is zoomed out. */
+function measureNodeSizes(root, flow) {
+  const known = new Set((flow?.nodes || []).map((n) => n.id))
+  return Object.fromEntries([...root?.querySelectorAll('[data-fc-node]') || []].flatMap((el) => {
+    const id = el.dataset.fcNode, width = el.offsetWidth, height = el.offsetHeight
+    return known.has(id) && [width, height].every((v) => Number.isFinite(v) && v > 0 && v <= 100000)
+      ? [[id, { width, height }]] : []
+  }))
+}
 function Canvas(p) {
   const { flow, types, layouts, run, view, setView } = p
   const ref = useRef(null)
@@ -3893,6 +4234,7 @@ function Canvas(p) {
   const dragRef = useRef(null)
   const spaceRef = useRef(false)
   const [wire, setWire] = useState(null)
+  useWireTipGuard(wire, ref)
   const [rect, setRect] = useState(null)
   const [panning, setPanning] = useState(false)
   const [space, setSpace] = useState(false)
@@ -4409,6 +4751,7 @@ function Canvas(p) {
     onDragOver,
     onDrop
   },
+  wire ? h('style', { 'data-fc-wire-tips': '1' }, WIRE_TIP_CSS) : null,
   h('svg', { className: 'fc-edges', style: { transform: `translate(${view.x}px, ${view.y}px) scale(${view.zoom})` } }, edgeEls, wireEl),
   h('div', { className: 'fc-world', style: { transform: `translate(${view.x}px, ${view.y}px) scale(${view.zoom})` } }, nodeEls),
   rect ? h('div', {
@@ -4472,7 +4815,7 @@ function InfoTip({ lines }) {
   const icon = h('span', { className: 'fc-info', tabIndex: 0, role: 'img', 'aria-label': text, title: typeof sdk.Tip === 'function' ? undefined : text },
     h(Icon, { name: 'info' }))
   if (typeof sdk.Tip !== 'function') return icon
-  return h(sdk.Tip, { label: h('div', { className: 'fc-tip' }, list.map((l, i) => h('div', { key: i }, l))), side: 'top' }, icon)
+  return h(sdk.Tip, { label: h('div', { className: 'fc-tip' }, list.map((l, i) => h('div', { key: i }, l))), side: 'top', className: 'fc-tip-bubble' }, icon)
 }
 
 function loadModelOptions(refresh = false) {
@@ -4486,6 +4829,27 @@ function loadModelOptions(refresh = false) {
   return p
 }
 
+/** Puts a `position: fixed` popup under `anchor` (above it when there is clearly more room there), inside
+ *  `bounds`, and caps its scrolling list to the space left. Corrects for a transformed ancestor by measuring. */
+function placeFloating(pop, anchor, bounds, gap = 4) {
+  const a = anchor.getBoundingClientRect()
+  const b = bounds ? bounds.getBoundingClientRect() : { top: 0, left: 0, right: window.innerWidth, bottom: window.innerHeight }
+  const list = pop.querySelector('.fc-model-list')
+  const below = b.bottom - a.bottom - gap - 8
+  const above = a.top - b.top - gap - 8
+  const up = below < 220 && above > below
+  const chrome = pop.offsetHeight - (list ? list.offsetHeight : 0)
+  if (list) list.style.maxHeight = `${Math.max(96, Math.min(320, (up ? above : below) - chrome))}px`
+  const width = Math.min(Math.max(a.width, 260), b.right - b.left - 16)
+  const left = Math.max(b.left + 8, Math.min(a.left, b.right - 8 - width))
+  const top = up ? a.top - gap - pop.offsetHeight : a.bottom + gap
+  pop.style.width = `${width}px`
+  pop.style.left = `${left}px`
+  pop.style.top = `${top}px`
+  const got = pop.getBoundingClientRect()          // a transformed ancestor shifts `fixed`: correct by the offset
+  if (Math.abs(got.left - left) > 0.5) pop.style.left = `${2 * left - got.left}px`
+  if (Math.abs(got.top - top) > 0.5) pop.style.top = `${2 * top - got.top}px`
+}
 /** Searchable model dropdown, grouped by provider. Empty value = Hermes' active model. */
 function ModelPicker({ model, provider, onChange, eager = false, disabled = false }) {
   const [open, setOpen] = useState(false)
@@ -4494,6 +4858,7 @@ function ModelPicker({ model, provider, onChange, eager = false, disabled = fals
   const [error, setError] = useState(null)
   const [loading, setLoading] = useState(false)
   const wrapRef = useRef(null)
+  const popRef = useRef(null)
   const load = (refresh) => {
     setLoading(true)
     setError(null)
@@ -4508,6 +4873,25 @@ function ModelPicker({ model, provider, onChange, eager = false, disabled = fals
     document.addEventListener('pointerdown', away, true)
     return () => document.removeEventListener('pointerdown', away, true)
   }, [open, eager])
+  useLayoutEffect(() => {
+    // In the Build composer the list floats over the dialog instead of growing it: place it under (or above) the
+    // button, inside the visible Arachne page, and shrink the list to the room that is there.
+    const wrap = wrapRef.current
+    if (!open || !wrap || !wrap.closest('.fc-generate-card')) return undefined
+    const place = () => {
+      const pop = popRef.current
+      const btn = wrap.querySelector('.fc-model-btn')
+      if (!pop || !btn) return
+      placeFloating(pop, btn, wrap.closest('.fc-modal-scrim, .fc-root'))
+    }
+    place()
+    window.addEventListener('resize', place)
+    document.addEventListener('scroll', place, true)
+    return () => {
+      window.removeEventListener('resize', place)
+      document.removeEventListener('scroll', place, true)
+    }
+  }, [open, data, query])
   const groups = useMemo(() => modelGroups(data), [data])
   const { groups: shown, hidden } = useMemo(() => filterModelGroups(groups, query), [groups, query])
   const providerName = (slug) => (groups.find((g) => g.slug === slug) || {}).name || slug
@@ -4528,7 +4912,7 @@ function ModelPicker({ model, provider, onChange, eager = false, disabled = fals
     }, label,
     !isBlank(model) && !isBlank(provider) ? h('span', { className: 'fc-model-prov' }, providerName(provider)) : null,
     h(Icon, { name: 'chevron-down' })),
-    open ? h('div', { className: 'fc-model-pop', role: 'listbox' },
+    open ? h('div', { className: 'fc-model-pop', role: 'listbox', ref: popRef },
       h('div', { className: 'fc-model-search' },
         h(Icon, { name: 'search' }),
         h('input', {
@@ -4567,6 +4951,7 @@ function ModelPicker({ model, provider, onChange, eager = false, disabled = fals
 /** Controlled G6 composer. The parent owns draft/busy/error so a failed request loses none of the input. */
 function GenerateComposer({ flow, generation, onEdit, onSubmit, onCancel, onStop, inline = false }) {
   const { draft, busy, error } = generation
+  const now = useNow(busy)
   const submit = () => {
     if (!busy && draft.prompt.trim()) onSubmit()
   }
@@ -4601,7 +4986,7 @@ function GenerateComposer({ flow, generation, onEdit, onSubmit, onCancel, onStop
           disabled: busy || !draft.prompt.trim(), title: 'Build and validate the graph (Ctrl+Enter)', onClick: submit
         }, h(Icon, { name: busy ? 'loading' : 'sparkle', spin: busy }), busy ? 'Building…' : flow ? 'Apply changes' : 'Build flow'))),
     busy ? h('div', { className: 'fc-generate-busy fc-row', 'data-fc-generate-status': '1', role: 'status' },
-      h('span', null, generationStatus(generation.phase, generation.elapsed)),
+      h('span', null, generationStatus(generation.phase, generationElapsed(generation, now))),
       onStop ? h('button', {
         type: 'button', className: 'fc-btn', 'data-fc-generate-stop': '1', disabled: !generation.jobId,
         title: 'Stop this build; nothing is saved', onClick: onStop
@@ -4624,7 +5009,20 @@ function modelSetting(spec, params = {}) {
   const m = fields.find((f) => f.options_source && f.options_source !== 'messaging_channels')
   if (!m) return null
   const value = (params || {})[m.name]
-  return { param: m.name, model: !isBlank(value) ? String(value) : !isBlank(m.default) ? String(m.default) : '' }
+  const auto = !!m.auto && isBlank(value) && isBlank(m.default)
+  const mode = auto ? String((params || {})[m.auto] || 'cheapest') : ''
+  const out = { param: m.name, model: !isBlank(value) ? String(value) : !isBlank(m.default) ? String(m.default) : '' }
+  return m.auto ? { ...out, auto, mode } : out
+}
+
+/** The model a blank `auto` setting runs with: cheapest (mode 'best': priciest) priced option, else the first.
+ *  Mirrors engine presets.auto_pick. Pure, tested. */
+function autoPick(options, mode = 'cheapest') {
+  const list = (Array.isArray(options) ? options : []).filter((o) => o && typeof o.value === 'string' && o.value)
+  const priced = list.filter((o) => typeof o.price === 'number' && Number.isFinite(o.price))
+  const better = mode === 'best' ? (a, b) => b.price > a.price : (a, b) => b.price < a.price
+  if (priced.length) return priced.reduce((a, b) => (better(a, b) ? b : a))
+  return list[0] || null
 }
 
 /**
@@ -4931,8 +5329,26 @@ function loadModelInfo(api, type, param, model, refresh = false) {
     .finally(() => modelInfoListeners.forEach((fn) => fn()))
   return entry.promise
 }
+const autoModelCache = new Map()
+/** '' until the node's model list arrived; then the auto-picked id (listeners re-render the cards). */
+function autoModel(api, type, param, mode = 'cheapest') {
+  const key = `${type}\u0000${param}\u0000${mode}`
+  if (autoModelCache.has(key)) return autoModelCache.get(key)
+  autoModelCache.set(key, '')
+  if (api && typeof api.options === 'function') {
+    loadToolOptions(api, type, param).then((d) => {
+      const pick = autoPick(d && d.options, mode)
+      if (pick) {
+        autoModelCache.set(key, pick.value)
+        modelInfoListeners.forEach((fn) => fn())
+      }
+    }, () => { autoModelCache.delete(key) })
+  }
+  return ''
+}
 function useModelInfo(api, nodeType, spec, params, { fetch = true } = {}) {
-  const ms = modelSetting(spec, params)
+  let ms = modelSetting(spec, params)
+  if (ms && ms.auto && fetch) ms = { ...ms, model: autoModel(api, nodeType, ms.param, ms.mode) }
   const key = ms && ms.model ? `${nodeType}\u0000${ms.param}\u0000${ms.model}` : ''
   const [, bump] = useReducer((x) => x + 1, 0)
   useEffect(() => {
@@ -4995,7 +5411,7 @@ function toolOptionCopy(type, param) {
 }
 
 /** Searchable model or recipient choices. An explicit fixed value may also be entered. */
-function ToolOptionPicker({ api, type, param, value, fallback, onChange }) {
+function ToolOptionPicker({ api, type, param, value, fallback, fallbackPrefix = 'Default', onChange }) {
   const copy = toolOptionCopy(type, param)
   const [open, setOpen] = useState(false)
   const [query, setQuery] = useState('')
@@ -5029,7 +5445,7 @@ function ToolOptionPicker({ api, type, param, value, fallback, onChange }) {
   const exact = typed && groups.some((g) => g.models.includes(typed))
   const first = shown.length ? shown[0].models[0] : typed || null
   const label = isBlank(value)
-    ? h('span', { className: 'fc-muted' }, fallback ? `Default · ${fallback}` : copy.blank)
+    ? h('span', { className: 'fc-muted' }, fallback ? `${fallbackPrefix} · ${fallback}` : copy.blank)
     : h('span', null, String(value))
   const priceOf = (v) => {
     for (const g of groups) if (v in g.prices) return g.prices[v]
@@ -5052,7 +5468,7 @@ function ToolOptionPicker({ api, type, param, value, fallback, onChange }) {
         h('button', { type: 'button', className: 'fc-btn ghost icon', title: 'Reload the list', onClick: () => load(true) }, h(Icon, { name: 'refresh', spin: loading }))),
       h('div', { className: 'fc-model-list' },
         h('div', { className: `fc-model-item${isBlank(value) ? ' active' : ''}`, onClick: () => pick('') },
-          h('span', null, fallback ? `Default · ${fallback}` : copy.clear), h('span', { className: 'fc-model-prov' }, copy.clearHint)),
+          h('span', null, fallback ? `${fallbackPrefix} · ${fallback}` : copy.clear), h('span', { className: 'fc-model-prov' }, copy.clearHint)),
         typed && !exact ? h('div', { className: 'fc-model-item', onClick: () => pick(typed) }, h('span', null, `Use “${typed}”`), h('span', { className: 'fc-model-prov' }, 'custom')) : null,
         loading && !data ? h('div', { className: 'fc-help fc-model-note' }, copy.loading) : null,
         error ? h('div', { className: 'fc-help fc-bad fc-model-note' }, `Could not load the list: ${error}`) : null,
@@ -5239,7 +5655,7 @@ function MarkdownEditor({ value, onChange, placeholder }) {
     preview ? h('div', { className: 'fc-help' }, 'Safe preview: HTML is text; images are not loaded. Only http/https links are clickable.') : null)
 }
 
-function ParamField({ spec, value, source, types, onChange, onChangeMany, params, port, api, nodeType, onBrowse, modelField, modelName, note }) {
+function ParamField({ spec, value, source, types, onChange, onChangeMany, params, port, api, nodeType, onBrowse, modelField, modelName, note, flowId }) {
   const placeholder = spec.default !== null && spec.default !== undefined && spec.default !== '' ? `default: ${typeof spec.default === 'string' ? spec.default : JSON.stringify(spec.default)}` : ''
   const ctl = fieldControl(spec, modelField)
   const extra = []
@@ -5249,6 +5665,7 @@ function ParamField({ spec, value, source, types, onChange, onChangeMany, params
   if (ctl.hint) info.push(`Allowed: ${ctl.hint}.`)
   let control
   if (source && spec.kind !== 'media_list') control = h('div', { className: 'fc-linked' }, h(Icon, { name: 'link' }), 'from', h('b', null, source))
+  else if (spec.picker === 'flow') control = h(FlowPicker, { api, value, ownId: flowId, onChange })
   else if (spec.kind === 'media' || spec.kind === 'media_list') {
     const multiple = spec.kind === 'media_list'
     const items = multiple ? mediaValues(value) : []
@@ -5330,7 +5747,13 @@ function ParamField({ spec, value, source, types, onChange, onChangeMany, params
       extra.push(h('div', { key: 'count', className: `fc-help${have.size && min !== null && have.size < min ? ' fc-bad' : ''}` }, `Pick ${range}.`))
     }
   } else if (spec.options_source && (spec.kind === 'text' || spec.kind === 'textarea')) {
-    control = h(ToolOptionPicker, { api, type: nodeType, param: spec.name, value, fallback: isBlank(spec.default) ? null : String(spec.default), onChange })
+    const mode = spec.auto ? String((params && params[spec.auto]) || 'cheapest') : ''
+    const picked = spec.auto && isBlank(spec.default) ? autoModel(api, nodeType, spec.name, mode) : ''
+    control = h(ToolOptionPicker, {
+      api, type: nodeType, param: spec.name, value, onChange,
+      fallback: !isBlank(spec.default) ? String(spec.default) : picked || null,
+      fallbackPrefix: spec.auto && isBlank(spec.default) ? `Auto (${mode})` : 'Default'
+    })
   } else if (spec.kind === 'model') {
     control = h(ModelPicker, {
       model: value, provider: params ? params.provider : null,
@@ -6516,6 +6939,14 @@ function NodePanel(p) {
           title: 'Swap the tool; matching settings and wires are kept',
           onChange: (t) => t && t !== node.type && p.onChangeType(node.id, t)
         })) : null,
+      spec && Array.isArray(spec.providers) && spec.providers.length ? h('div', { className: 'fc-field fc-provider-pick' },
+        h('label', null, 'Provider', h(InfoTip, { lines: ['Which service runs this step. Every provider found in your Hermes setup is listed.', 'Switching keeps wires and text; the model is picked again from the new provider.'] })),
+        spec.providers.length > 1 ? h('select', {
+          className: 'fc-input',
+          value: spec.providers.some((c) => c.type === node.type) ? node.type : spec.type,
+          onChange: (e) => e.target.value && e.target.value !== node.type && p.onChangeType(node.id, e.target.value)
+        }, spec.providers.map((c) => h('option', { key: c.type, value: c.type }, c.label)))
+          : h('div', { className: 'fc-help' }, spec.providers[0].label.replace(' (best available)', ''))) : null,
       !spec && !isNote ? h('div', { className: 'fc-node-error', style: { margin: '6px 0 0' } },
         isTool ? 'This tool is not available (missing, blocked or its MCP server is off). Pick another tool or remove the node.'
           : `Unknown node type “${node.type}”.`) : null,
@@ -6547,6 +6978,7 @@ function NodePanel(p) {
         onChange: (v) => p.onUpdateNode(node.id, { params: { [f.name]: v } }, `p:${node.id}:${f.name}`),
         onChangeMany: (patch) => p.onUpdateNode(node.id, { params: patch }),
         onBrowse: p.onPickFile ? (kind) => p.onPickFile(kind, node.id) : null,
+        flowId: flow && flow.id,
         modelField: modelFields[f.name],
         modelName,
         note: ms && f.name === ms.param ? modelNote : imageLimits[f.name] ? imageLimits[f.name].note : null
@@ -7454,14 +7886,18 @@ function ArachneFlowPage({ ctx }) {
       const list = fl.flows || []
       setFlows(list)
       setTemplates(tp.templates || [])
-      setBoot({ status: 'ready', error: '' })
       latest.current.refreshTimings()
       const wanted = SHARED.pendingOpen || sget('flowId', null)
       SHARED.pendingOpen = null
       const pick = list.find((f) => f.id === wanted) ? wanted : list[0] ? list[0].id : null
       const sel = storedSelectionRef.current
       storedSelectionRef.current = null
-      if (pick) await latest.current.openFlow(pick, { select: Array.isArray(sel) ? sel : [] })
+      // Stay on the loading screen until the last flow is open: switching ready first flashed the Welcome page.
+      try {
+        if (pick) await latest.current.openFlow(pick, { select: Array.isArray(sel) ? sel : [] })
+      } finally {
+        setBoot({ status: 'ready', error: '' })
+      }
       if (SHARED.pendingRun) {
         SHARED.pendingRun = false
         if (pick) latest.current.startRun({})
@@ -7573,7 +8009,7 @@ function ArachneFlowPage({ ctx }) {
     if (conflictRef.current || flowRef.current !== loadedRef.current) return
     await chainWork(async () => {
       try {
-        const res = await api.layout(current.id, baseRevRef.current)
+        const res = await api.layout(current.id, baseRevRef.current, measureNodeSizes(rootRef.current, current))
         loadedRef.current = res.flow
         baseRevRef.current = res.flow.revision
         setDoc((d) => applyEdit(d, res.flow))
@@ -7641,7 +8077,7 @@ function ArachneFlowPage({ ctx }) {
     if (!draft.prompt.trim()) return
     const original = flowRef.current
     generatingRef.current = true
-    dispatchGeneration({ type: 'start' })
+    dispatchGeneration({ type: 'start', at: Date.now() })
     let result = null
     let failure = null
     try {
@@ -7651,8 +8087,11 @@ function ArachneFlowPage({ ctx }) {
       if (original && flowRef.current !== loadedRef.current) throw new Error('Save the current edits successfully before building with Hermes.')
       await chainWork(async () => {
         try {
+          // The model list Hermes offers, so the build can set LLM nodes to models the user names. Optional:
+          // without the gateway the build still works, it just cannot pick LLM models.
+          const llmModels = await loadModelOptions().then(llmModelsHint, () => null)
           const res = await runGenerationJob(api, generationBody({
-            ...draft, flow: original, baseRevision: original ? baseRevRef.current : null,
+            ...draft, flow: original, baseRevision: original ? baseRevRef.current : null, llmModels,
           }), {
             onProgress: (job) => {
               generationJobRef.current = job.id
@@ -8514,8 +8953,8 @@ const cacheSizes = () => ({
   toolOptions: optionsCache.size
 })
 const _internals = {
-  MiniMedia, ModelThumbnail, createModelThumbnailCache, triggerWhen, triggerLines, TriggerGuard, isTriggerType,
-  runGenerationJob, generationJobError, generationStatus, GENERATE_POLL_MS,
+  Palette, MiniMedia, ModelThumbnail, createModelThumbnailCache, menuMatch, flowMenuModel, flowPickerChoice, FlowPicker, triggerWhen, triggerLines, TriggerGuard, isTriggerType,
+  runGenerationJob, llmModelsHint, generationJobError, generationStatus, generationElapsed, GenerateComposer, measureNodeSizes, GENERATE_POLL_MS,
   NODE_W, HEAD_H, PORTS_TOP, ROW_H, GRID, MIN_ZOOM, MAX_ZOOM, COLLAPSE_AFTER, VISIBLE_OPTIONAL, UNDO_LIMIT, POLL_MS,
   // U-4: pure helpers used by the canvas render path (tested in tests/js/perf.test.mjs)
   edgePathWorld, rafThrottle, NodeCard, nodeCardPropsEqual, Canvas,
@@ -8528,7 +8967,7 @@ const _internals = {
   // small review findings (E0): per-window hand-off ownership, boot navigation retries, copy feedback
   shouldConsumeHandoff, peekPopout, clearPopout, windowIdGet, WINDOW_ID_KEY, shouldRetryNavigate, clipboardOk,
   splitTemplates, filledInputs,
-  paramSummary, paramInfo, splitFields, paletteSections, paletteFolds, allFoldsOpen, setAllFolds, typeTip, typeTipText, modelGroups, filterModelGroups, optionGroups, toolOptionCopy, formatPrice, fillHeight, parseNumberInput, saveBlocker, persistForFlowChange, spacePans, canvasClipboardKey, connectionState, recoveryPlan, LOST_CONTACT_AFTER, categoryColor, portColor, indexTypes, countStatuses, isRunActive, makeApi, loadRunValue, isEditableTarget,
+  muteTitles, WIRE_TIP_CSS, paramSummary, paramInfo, splitFields, paletteSections, presetGroups, nodeSubline, nodeFooter, toolProvider, autoPick, modelSetting, paletteFolds, allFoldsOpen, setAllFolds, typeTip, typeTipText, modelGroups, filterModelGroups, optionGroups, toolOptionCopy, formatPrice, fillHeight, parseNumberInput, saveBlocker, persistForFlowChange, spacePans, canvasClipboardKey, connectionState, recoveryPlan, LOST_CONTACT_AFTER, categoryColor, portColor, indexTypes, countStatuses, isRunActive, makeApi, loadRunValue, isEditableTarget,
   // accessibility (U-8): keyboard decisions for menus and dialogs
   menuKeyNav, menuRowsIn, FlowMenu, trapFocus, activatesOn,
   modelSetting, fieldControl, rangeHint, numberIssue, choiceValue, multiValues, mediaValues, addMediaPath, toggleChoice, effectiveValues, estimateCost,

@@ -83,16 +83,16 @@ class ConfigSchemaTest(unittest.TestCase):
             self.assertIn(needle, section, needle)
         self.assertNotIn("Flow Canvas", " ".join(text.split()))
 
-    def test_readme_documents_install_nanogpt_templates_and_dev_harness(self):
+    def test_readme_documents_install_providers_templates_and_dev_harness(self):
         with open(os.path.join(helpers.ROOT, "README.md"), encoding="utf-8") as fh:
             text = fh.read()
         install = text.split("## Install", 1)[1].split("\n## ", 1)[0]
         self.assertIn("hermes plugins install EmotionalThrifty/arachne-flow --enable", install)
-        self.assertIn("not yet an accepted Hermes plugin-catalog entry", install)
-        self.assertIn("plugin ID remains `arachne-flow`", install)
+        self.assertIn("former id\n`flowcanvas`", install)          # catalog entry: earlier release, old id
+        self.assertIn("plugin ID is `arachne-flow`", install)
         self.assertNotIn("hermes plugins install arachne-flow --enable", install)
-        features = text.split("## Features", 1)[1].split("\n## ", 1)[0]
-        self.assertIn("@nanogpt/mcp", features)
+        self.assertIn("provider-independent", install)
+        self.assertNotIn("nanogpt", text.lower())                # no provider is required or special-cased
         dev = text.split("## Development", 1)[1].split("\n## ", 1)[0]
         self.assertIn("never loaded by Hermes at plugin runtime", dev)
         with open(os.path.join(helpers.ROOT, "dev", "dev_server.py"), encoding="utf-8") as fh:

@@ -4,5 +4,5 @@ Loaded by path (package name ``arachne_flow_engine``) and re-imported when any f
 Modules import each other relatively. Keep NO long-lived state in module globals: use env.state.
 """
 from .version import VERSION  # noqa: F401
-from . import types, graph, layout, store, nodes, media, executors, options, presets, timings, runner, generate  # noqa: F401,E402,E501
+from . import types, graph, layout, store, nodes, media, executors, options, presets, timings, runner, model_guide, generate  # noqa: F401,E402,E501
 from . import env, api, tool_schemas, tools, triggers  # noqa: F401,E402

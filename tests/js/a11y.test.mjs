@@ -5,7 +5,8 @@ import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { loadPlugin } from './load.mjs'
+import { loadPlugin, loadReactStub } from './load.mjs'
+const { withHookState } = await loadReactStub()
 
 const I = (await loadPlugin())._internals
 const root = join(fileURLToPath(new URL('.', import.meta.url)), '..', '..')
@@ -162,6 +163,7 @@ test('UI-8: user template rename and delete buttons in FlowMenu are keyboard-rea
         return v === undefined || v === null ? null : String(v)
       },
       focus() { activeEl = this },
+      scrollIntoView(options) { this.scrolled = options },
       click() {
         if (typeof this.props.onClick === 'function') {
           this.props.onClick({ stopPropagation() {}, preventDefault() {} })
@@ -199,8 +201,9 @@ test('UI-8: user template rename and delete buttons in FlowMenu are keyboard-rea
       { id: 'tpl_user', name: 'My pipeline', source: 'user', available: true },
       { id: 'tpl_builtin', name: 'Starter', source: 'builtin', available: true }
     ]
+    const hooks = {}
     const renderMenu = () => {
-      const vnode = I.FlowMenu({
+      const vnode = withHookState(hooks, () => I.FlowMenu({
         flows: [{ id: 'f_1', name: 'Flow 1', node_count: 2, updated_at: new Date().toISOString() }],
         current: { id: 'f_1', name: 'Flow 1' },
         templates,
@@ -212,14 +215,15 @@ test('UI-8: user template rename and delete buttons in FlowMenu are keyboard-rea
         onClose() {},
         onSaveTemplate() {},
         onEditTemplate: (t) => edited.push(t.id),
-        onDeleteTemplate: (t) => deleted.push(t.id),
-        onSchedule() {}
-      })
+        onDeleteTemplate: (t) => deleted.push(t.id)
+      }))
       const dom = buildDom(vnode)
       if (vnode.props?.ref) vnode.props.ref.current = dom
       return dom
     }
 
+    const initial = renderMenu()
+    I.menuRowsIn(initial).find((el) => el.getAttribute('data-fc-menu-tab') === 'templates').click()
     const dom = renderMenu()
     const rows = I.menuRowsIn(dom)
     const editIdx = rows.findIndex((r) => r.getAttribute('data-fc-template-edit') === 'tpl_user')
@@ -232,6 +236,7 @@ test('UI-8: user template rename and delete buttons in FlowMenu are keyboard-rea
     const key = (k) => dom.props.onKeyDown({ key: k, preventDefault() {}, stopPropagation() {} })
     for (let i = 0; i < editIdx; i++) key('ArrowDown')
     assert.equal(activeEl.getAttribute('data-fc-template-edit'), 'tpl_user', 'ArrowDown reaches Edit template')
+    assert.deepEqual(activeEl.scrolled, { block: 'nearest', inline: 'nearest' }, 'keyboard focus must stay visible in a long list')
     key('Enter')
     assert.deepEqual(edited, ['tpl_user'], 'Enter on Edit template triggers onEditTemplate')
 
