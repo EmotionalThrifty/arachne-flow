@@ -363,8 +363,15 @@ function ArachneFlowPage({ ctx }) {
       if (dialog.mode === 'save') {
         const current = flowRef.current
         if (!current) return
-        await latest.current.persist() // the engine copies the saved file
-        const res = await api.saveTemplate({ flow_id: current.id, ...values })
+        // The engine copies the saved file: only a confirmed save may become a template (review R5).
+        const saved = await persistForFlowChange(
+          latest.current.persist,
+          () => saveBlocker(conflictRef.current, flowRef.current, loadedRef.current),
+          () => api.saveTemplate({ flow_id: current.id, ...values }),
+          (reason) => notify(reason, conflictRef.current ? 'warn' : 'error'),
+        )
+        if (!saved.ok) return
+        const res = saved.value
         notify(`Saved as template “${res.template.name}”. It is in the Flows menu under Your templates.`, 'ok', 4500)
       } else {
         await api.updateTemplate(dialog.template.id, { name: values.name, description: values.description })

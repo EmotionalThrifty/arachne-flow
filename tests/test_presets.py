@@ -26,6 +26,7 @@ TOOLS = [
                    "imageDataUrl": {"type": "string"}, "images": {"type": "array", "items": {"type": "string"}},
                    "operation": {"type": "string", "enum": ["submit", "status", "poll", "submit_and_poll"],
                                  "default": "submit_and_poll"},
+                   "runId": {"type": "string"}, "jobId": {"type": "string"}, "requestId": {"type": "string"}, "modelSlug": {"type": "string"},
                    "model": {"type": "string", "default": "fast"}}),
     tool("vision_analyze", {"image_url": {"type": "string"}, "question": {"type": "string"}},
          ["image_url", "question"]),
@@ -243,7 +244,9 @@ class PresetTest(unittest.TestCase):
 # `status` is the whole /api/video/status JSON ({requestId, data: {status, output}, model}) or null.
 NANO_VIDEO = "mcp__nanogpt__nanogpt_video_generate"
 VIDEO_TOOLS = TOOLS + [tool(NANO_VIDEO, {"prompt": {"type": "string"},
-                                         "operation": {"type": "string", "enum": ["submit", "poll", "status"]},
+                                         "operation": {"type": "string",     # the live schema (18.11.2026)
+                                                       "enum": ["submit", "status", "poll", "submit_and_poll"]},
+                                         "runId": {"type": "string"}, "jobId": {"type": "string"}, "requestId": {"type": "string"}, "modelSlug": {"type": "string"},
                                          "model": {"type": "string"}, "duration": {"type": "number"}})]
 MODEL_SLUG = "wavespeed-ai/hunyuan-3d-v3.1-rapid"
 CDN = "https://cdn.example.com/jobs/job-1/output"  # signed links carry no file extension

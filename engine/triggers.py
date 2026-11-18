@@ -626,7 +626,7 @@ def _when_matches(when: str, status: str) -> bool:
     return status == "done"
 
 
-def run_result(source: dict, run: dict) -> dict:
+def run_result(source: dict, run: dict, env=None) -> dict:
     """Outputs of the source flow's end steps (nodes nothing reads from), by title."""
     from . import runner as R
     feeding = {e.get("from", {}).get("node") for e in source.get("edges", []) if isinstance(e, dict)}
@@ -639,7 +639,7 @@ def run_result(source: dict, run: dict) -> dict:
         outputs = st.get("outputs")
         if not isinstance(outputs, dict) or st.get("status") not in ("done", "cached"):
             continue
-        value = {k: R.load_value(v) for k, v in outputs.items() if not str(k).startswith("$")}
+        value = {k: R.load_value(v, env) for k, v in outputs.items() if not str(k).startswith("$")}
         if len(value) == 1:
             value = next(iter(value.values()))
         name = str(node.get("title") or nid)
@@ -650,7 +650,7 @@ def run_result(source: dict, run: dict) -> dict:
 def flow_event(env, source: dict, run: dict) -> dict:
     summary = S.summarize_run(run)
     summary["error"] = run.get("error")
-    return {"result": run_result(source, run), "status": run.get("status") or "", "run": summary}
+    return {"result": run_result(source, run, env), "status": run.get("status") or "", "run": summary}
 
 
 def _chain_depth(run: dict) -> int:
@@ -975,6 +975,8 @@ class Scheduler:
                 limit = max(1, min(20, int(float(params.get("max_items") or 3))))
                 pending = list(reversed(fresh_items[:limit]))     # oldest of the new ones first
                 upd["seen"] = ([i["id"] for i in fresh_items] + seen)[:RSS_SEEN_KEEP]
+                if not pending:                          # nothing new: wait for the next interval (review R3)
+                    return [], upd
             if busy:
                 upd["pending"] = pending
                 return [], upd

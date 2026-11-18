@@ -82,7 +82,7 @@ class ScratchCase(unittest.TestCase):
     def assert_loud(self, marker, note):
         """An explicit, meaningful failure — never a silently returned (longer) value."""
         with self.assertRaises(Exception) as caught:   # any explicit error beats silent corruption
-            R.load_value(marker)
+            R.load_value(marker, self.env)
         exc = caught.exception
         self.assertNotIsInstance(exc, (AttributeError, KeyError, IndexError),
                                  f"{note}: internal error instead of a corruption error: {exc!r}")
@@ -103,7 +103,7 @@ class LegacySpillLoadTest(ScratchCase):
         self.assertEqual(meta["chars"], len(MIXED_TEXT))
         self.assertEqual(read_bytes(path), MIXED_TEXT.encode("utf-8"),
                          "record_value translated newlines in the spill file")
-        self.assertEqual(R.load_value(marker), MIXED_TEXT,
+        self.assertEqual(R.load_value(marker, self.env), MIXED_TEXT,
                          "a clean spill did not come back character for character")
 
     def test_legacy_crlf_spill_with_stale_chars_raises(self):
@@ -143,15 +143,15 @@ class LegacySpillLoadTest(ScratchCase):
         meta = marker["$large"]
         self.assertEqual(meta["chars"], len(CRLF_TEXT))
         self.assertEqual(read_bytes(meta["path"]), CRLF_TEXT.encode("utf-8"))
-        self.assertIn("\r\n", R.load_value(marker), "a legitimate CRLF was dropped or rejected")
+        self.assertIn("\r\n", R.load_value(marker, self.env), "a legitimate CRLF was dropped or rejected")
 
         # Same shape, but hand-written metadata that is consistent with the bytes.
-        hand = os.path.join(self.root, "hand", "value.txt")
+        hand = os.path.join(self.root, "outputs", RUN_ID, "hand-value.txt")   # spills live in run outputs
         os.makedirs(os.path.dirname(hand), exist_ok=True)
         write_bytes(hand, legacy_windows_bytes(CRLF_TEXT))
         crafted = {"$large": {"file": "value.txt", "path": hand,
                               "chars": len(CRLF_TEXT) + CRLF_TEXT.count("\n"), "preview": ""}}
-        self.assertEqual(R.load_value(crafted), read_bytes(hand).decode("utf-8"))
+        self.assertEqual(R.load_value(crafted, self.env), read_bytes(hand).decode("utf-8"))
 
     def test_json_spill_round_trips_dict_and_list(self):
         for value in (BIG_DICT, BIG_LIST):
@@ -160,7 +160,7 @@ class LegacySpillLoadTest(ScratchCase):
                 marker = self.record(value)
                 self.assertIn("$large", marker)
                 self.assertTrue(marker["$large"]["file"].endswith(".json"), marker["$large"])
-                loaded = R.load_value(marker)
+                loaded = R.load_value(marker, self.env)
                 self.assertEqual(type(loaded), type(value))
                 self.assertEqual(loaded, value, "a clean JSON spill did not round-trip")
 
@@ -196,11 +196,11 @@ class LegacySpillLoadTest(ScratchCase):
             with self.subTest(kind=marker["$large"]["file"].rsplit(".", 1)[-1]):
                 legacy = marker_without_chars(marker)
                 self.assertNotIn("chars", legacy["$large"])
-                self.assertEqual(R.load_value(legacy), expected)
+                self.assertEqual(R.load_value(legacy, self.env), expected)
 
     def test_valid_json_kinds_load_without_a_marker_chars_field(self):
         """Scalar/array/object JSON spills are all valid legacy shapes."""
-        folder = os.path.join(self.root, "kinds")
+        folder = os.path.join(self.root, "outputs", RUN_ID, "kinds")       # spills live in run outputs
         os.makedirs(folder, exist_ok=True)
         cases = {"number": ("42", 42), "string": ('"hi"', "hi"),
                  "array": ("[1, 2, 3]", [1, 2, 3]), "object": ('{"a": 1}', {"a": 1})}
@@ -210,33 +210,33 @@ class LegacySpillLoadTest(ScratchCase):
                 write_bytes(path, raw.encode("utf-8"))
                 marker = {"$large": {"file": name + ".json", "path": path,
                                      "chars": len(raw), "preview": raw[:40]}}
-                self.assertEqual(R.load_value(marker), expected)
+                self.assertEqual(R.load_value(marker, self.env), expected)
 
     def test_load_does_not_mutate_the_file_or_the_marker(self):
         marker = self.record(MIXED_TEXT)
         path = marker["$large"]["path"]
         before_bytes, before_marker = read_bytes(path), json.loads(json.dumps(marker))
-        R.load_value(marker)
+        R.load_value(marker, self.env)
         self.assertEqual(read_bytes(path), before_bytes)
         self.assertEqual(marker, before_marker)
 
         json_marker = self.record(BIG_DICT, port="rows")
         json_path = json_marker["$large"]["path"]
         json_before, marker_before = read_bytes(json_path), json.loads(json.dumps(json_marker))
-        R.load_value(json_marker)
+        R.load_value(json_marker, self.env)
         self.assertEqual(read_bytes(json_path), json_before)
         self.assertEqual(json_marker, marker_before)
 
     def test_non_spilled_values_pass_through_unchanged(self):
         for value in (None, True, False, 0, 1.5, "short text", ["a"], {"k": "v"}):
             with self.subTest(value=value):
-                self.assertEqual(R.load_value(value), value)
+                self.assertEqual(R.load_value(value, self.env), value)
 
     def test_missing_spill_file_keeps_todays_marker_passthrough(self):
         """Out of scope to change: no file means the marker itself, and that must not crash."""
-        gone = {"$large": {"file": "gone.txt", "path": os.path.join(self.root, "gone.txt"),
+        gone = {"$large": {"file": "gone.txt", "path": os.path.join(self.root, "outputs", RUN_ID, "gone.txt"),
                            "chars": 10, "preview": ""}}
-        self.assertEqual(R.load_value(gone), gone)
+        self.assertEqual(R.load_value(gone, self.env), gone)
         self.assertFalse(os.path.exists(gone["$large"]["path"]),
                          "load_value created a file for a missing spill")
 
@@ -383,7 +383,7 @@ class LegacySpillRunnerTest(ScratchCase):
         self.assertEqual(marker["$large"]["chars"], len(CRLF_TEXT))
         expected = "echo:" + CRLF_TEXT
         echo_marker = first["nodes"][echo_id]["outputs"]["text"]
-        self.assertEqual(R.load_value(echo_marker), expected, "run 1 changed the CRLF/unicode text")
+        self.assertEqual(R.load_value(echo_marker, self.env), expected, "run 1 changed the CRLF/unicode text")
 
         entry_path, entry = self.cache_entry("tool:crlf")
         self.as_legacy_entry(entry_path, entry, marker)

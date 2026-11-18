@@ -359,7 +359,32 @@ def _stamp() -> str:
 
 # ----------------------------------------------------------------- flows
 
-def _normalize(flow: dict, flow_id: str, env, previous: dict = None, allow_optin: bool = False) -> dict:
+def _guard_triggers(out: dict, previous_nodes: dict, allow_arming: bool) -> None:
+    """Review R1/R2: a trigger's run-time event never comes from a saved graph, and only the dedicated trigger
+    action (``allow_arming``) switches a trigger on or gives it a webhook URL. Every other write (flow_apply, Build
+    with Hermes, the ops route, a canvas save, an import) keeps the stored state or switches it off."""
+    from . import triggers as T
+    for node in out["nodes"]:
+        if not isinstance(node, dict) or not T.is_trigger(node):
+            continue
+        params = node.get("params") if isinstance(node.get("params"), dict) else {}
+        node["params"] = params
+        params.pop(T.EVENT, None)
+        params.pop(T.IDLE, None)
+        if allow_arming:
+            continue
+        old = previous_nodes.get(node.get("id"))
+        old_params = (old.get("params") or {}) if isinstance(old, dict) and old.get("type") == node.get("type") else {}
+        was_on = T.active(old) if old_params else False
+        params["active"] = bool(was_on and T._on(params.get("active", True)))     # may switch off, never on
+        if "hook_id" in old_params:
+            params["hook_id"] = old_params["hook_id"]
+        else:
+            params.pop("hook_id", None)
+
+
+def _normalize(flow: dict, flow_id: str, env, previous: dict = None, allow_optin: bool = False,
+               allow_arming: bool = False) -> dict:
     if not isinstance(flow, dict):
         raise StoreError("flow must be an object")
     out = copy.deepcopy(flow)
@@ -378,6 +403,7 @@ def _normalize(flow: dict, flow_id: str, env, previous: dict = None, allow_optin
     # exactly the currently authorized flow/node/target, never a copied or revoked snapshot.
     previous_nodes = {node.get("id"): node for node in (previous or {}).get("nodes", [])
                       if isinstance(node, dict) and isinstance(node.get("id"), str)}
+    _guard_triggers(out, previous_nodes, allow_arming)
     for node in out["nodes"]:
         if not isinstance(node, dict):
             continue
@@ -445,7 +471,7 @@ def _write_flow(env, flow: dict, previous: dict = None) -> dict:
     return flow
 
 
-def save_flow(env, flow: dict, base_revision=None, create: bool = False) -> dict:
+def save_flow(env, flow: dict, base_revision=None, create: bool = False, allow_arming: bool = False) -> dict:
     """Store `flow` under its id with revision+1. Stale base_revision -> ConflictError.
 
     base_revision None skips the check. create=False refuses unknown ids (NotFoundError).
@@ -461,10 +487,11 @@ def save_flow(env, flow: dict, base_revision=None, create: bool = False) -> dict
             current = int(previous.get("revision", 0))
             if int(base_revision) != current:
                 raise ConflictError(flow_id, current, base_revision)
-        return _write_flow(env, _normalize(flow, flow_id, env, previous=previous), previous)
+        return _write_flow(env, _normalize(flow, flow_id, env, previous=previous, allow_arming=allow_arming), previous)
 
 
-def modify_flow(env, flow_id: str, mutate, base_revision=None, allow_optin: bool = False) -> dict:
+def modify_flow(env, flow_id: str, mutate, base_revision=None, allow_optin: bool = False,
+                allow_arming: bool = False) -> dict:
     """Locked read-modify-write: mutate(copy) returns the new flow (or edits in place and returns None)."""
     with flow_lock(env, flow_id):
         current = get_flow(env, flow_id)
@@ -473,7 +500,8 @@ def modify_flow(env, flow_id: str, mutate, base_revision=None, allow_optin: bool
         work = copy.deepcopy(current)
         result = mutate(work)
         return _write_flow(env, _normalize(work if result is None else result, flow_id, env,
-                                           previous=current, allow_optin=allow_optin), current)
+                                           previous=current, allow_optin=allow_optin,
+                                           allow_arming=allow_arming), current)
 
 
 def _taken_ids(env) -> set:

@@ -1000,7 +1000,7 @@ def _flow_action(env, method, flow_id, action, query, body):
                 params["hook_id"] = TR.new_hook_id()
             params["active"] = enable
             return None
-        flow = S.modify_flow(env, flow_id, mutate, base_revision=body.get("base_revision"))
+        flow = S.modify_flow(env, flow_id, mutate, base_revision=body.get("base_revision"), allow_arming=True)
         _emit_changed(env, flow, _origin(body, query))
         sched = env.state.get("trigger_scheduler")
         if sched is not None and getattr(sched, "leader", None) and sched.leader.handle is not None:

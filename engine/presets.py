@@ -76,6 +76,36 @@ def _norm(name: str) -> str:
     return re.sub(r"[^a-z0-9]", "", (name or "").lower())
 
 
+_JOB_ID_FIELDS = ("runId", "run_id", "jobId", "job_id", "taskId", "task_id", "requestId", "request_id")
+
+
+def _job_contract(props: dict):
+    """A job protocol read from the schema (review R4): an ``operation`` argument that offers polling plus the
+    field the poll call names the job by. Returns the exact values to send, or None (then one plain call)."""
+    op = props.get("operation") if isinstance(props.get("operation"), dict) else {}
+    if not op:
+        return None
+    values = [v for v in op.get("enum") or [] if isinstance(v, str)]
+    hints = values + [str(op.get("default") or ""), str(op.get("description") or "")]
+    if not any("poll" in h.lower() for h in hints):
+        return None
+    id_field = next((f for f in _JOB_ID_FIELDS if f in props), None)
+    if values:
+        submit = next((v for v in ("submit_and_poll", "submit", "start", "create") if v in values), None) or \
+            next((v for v in values if "poll" not in v.lower() and "status" not in v.lower()), None)
+        poll = "poll" if "poll" in values else next((v for v in values if "poll" in v.lower() or "status" in v.lower()), None)
+    else:            # described, not enumerated: the documented submit_and_poll / poll pair
+        submit, poll = "submit_and_poll", "poll"
+    if not submit or not poll or not id_field:
+        return None
+    contract = {"submit": submit, "poll": poll, "id": id_field}
+    for slug in ("modelSlug", "model_slug"):
+        if slug in props:
+            contract["slug"] = slug
+            break
+    return contract
+
+
 def _tool_args_by_role(tool: dict) -> dict:
     schema = tool.get("parameters") if isinstance(tool.get("parameters"), dict) else {}
     props = schema.get("properties") if isinstance(schema.get("properties"), dict) else {}
@@ -83,11 +113,7 @@ def _tool_args_by_role(tool: dict) -> dict:
     roles = {}
     for role, spellings in _ARG_ROLES.items():
         roles[role] = next((by_norm[s] for s in spellings if s in by_norm), None)
-    op = props.get("operation") if isinstance(props.get("operation"), dict) else {}
-    # A job protocol: an ``operation`` argument whose values (enum, default or description) offer polling.
-    hints = [str(v) for v in op.get("enum") or [] if isinstance(v, str)] + [str(op.get("default") or ""),
-                                                                           str(op.get("description") or "")]
-    roles["job"] = bool(op) and any("poll" in h.lower() for h in hints)
+    roles["job"] = _job_contract(props)
     if roles["resume"] and roles["resume"] in (roles.get("prompt"), roles.get("image")):
         roles["resume"] = None
     return roles
@@ -830,7 +856,7 @@ def _3d_timeout(node, nctx):
     return min(MAX_3D_S, E.node_timeout({**node, "params": params}, nctx))
 
 
-async def _run_job(env, tool, args, timeout, nctx, label):
+async def _run_job(env, tool, args, timeout, nctx, label, contract=None):
     """Long 3D/video job (tools whose ``operation`` offers ``poll``): submit once, then poll operation+runId (+modelSlug) until a terminal status or
     the node's timeout (capped at MAX_3D_S). Each new status reaches the node as a progress line."""
     deadline = time.monotonic() + timeout
@@ -843,7 +869,13 @@ async def _run_job(env, tool, args, timeout, nctx, label):
             raise E.NodeError(f"{label} generation timed out after {int(timeout)} s")
         return await E.call_tool(env, tool, call_args, timeout=remaining)
 
-    result = await call({**args, "operation": "submit_and_poll"})
+    contract = contract if isinstance(contract, dict) else {"submit": "submit_and_poll", "poll": "poll", "id": "runId",
+                                                            "slug": "modelSlug"}
+    # The job id in an answer: the field the poll call takes (camel or snake), else the usual run/job ids. Never
+    # another provider id like ``requestId`` unless the schema polls by it: polling with a wrong id never ends.
+    snake = re.sub(r"(?<!^)(?=[A-Z])", "_", contract["id"]).lower()
+    id_names = tuple(dict.fromkeys((contract["id"], snake, "runId", "run_id", "jobId", "job_id")))
+    result = await call({**args, "operation": contract["submit"]})
     while True:
         status = _job_status(result)
         if status in DONE_STATES:
@@ -853,7 +885,7 @@ async def _run_job(env, tool, args, timeout, nctx, label):
         if status and status != last_status:
             nctx.log(f"{label} job: {status}")
             last_status = status
-        job_id = _job_field(result, "runId", "run_id", "jobId", "job_id") or job_id
+        job_id = _job_field(result, *id_names) or job_id
         model_slug = _job_field(result, "modelSlug", "model_slug") or model_slug
         if not job_id:
             # Only a status-less finished media payload may omit the polling identifier.
@@ -862,9 +894,9 @@ async def _run_job(env, tool, args, timeout, nctx, label):
             raise E.NodeError(f"{label} job {status or 'response'} has no runId/jobId for polling; "
                               "check the provider job before retrying to avoid a duplicate charge")
         await asyncio.sleep(min(POLL_INTERVAL_S, max(0, deadline - time.monotonic())))
-        poll = {"operation": "poll", "runId": job_id}
-        if isinstance(model_slug, str) and model_slug:
-            poll["modelSlug"] = model_slug
+        poll = {"operation": contract["poll"], contract["id"]: job_id}
+        if isinstance(model_slug, str) and model_slug and contract.get("slug"):
+            poll[contract["slug"]] = model_slug
         result = await call(poll)
 
 
@@ -942,7 +974,7 @@ async def execute(env, node, spec, inputs, nctx):
     if role in ("image_to_3d", "text_to_3d", "edit_3d", "text_to_video", "image_to_video"):
         kind, label, out = ("video", "Video", "video") if "video" in role else ("model3d", "3D", "model")
         if job:
-            result = await _run_job(env, spec["tool"], args, _3d_timeout(node, nctx), nctx, label)
+            result = await _run_job(env, spec["tool"], args, _3d_timeout(node, nctx), nctx, label, job)
         else:   # a provider without a poll operation answers in one call, maybe with a handle to wait on
             result = await _call_and_resume(env, spec, args, _3d_timeout(node, nctx), nctx, label)
         return await _media_output(result, nctx, out, kind, collect=_job_media)

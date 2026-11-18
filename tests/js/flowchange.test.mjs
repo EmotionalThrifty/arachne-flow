@@ -1,6 +1,7 @@
 // R2-04: a save that failed must cancel the flow switch/new/duplicate instead of discarding unsaved edits.
 // The test drives the pure helper behaviorally (no source grep): persist first, then re-check the save
-// blocker, and only then run the change. The UI paths openFlow/createAndOpen/duplicateFlow use it.
+// blocker, and only then run the change. The UI paths openFlow/createAndOpen/duplicateFlow and
+// "As template…" (review R5, 18.11.2026: it reported success after a failed save) use it.
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { loadPlugin } from './load.mjs'
@@ -12,7 +13,7 @@ const REASON = 'The flow could not be saved, so it cannot run yet.'
 test('a failed save blocks open, new and duplicate before they run (R2-04)', async () => {
   assert.equal(typeof I.persistForFlowChange, 'function',
     'default export _internals must expose the pure persistForFlowChange helper')
-  for (const action of ['getFlow (open)', 'createFlow (new)', 'duplicate']) {
+  for (const action of ['getFlow (open)', 'createFlow (new)', 'duplicate', 'saveTemplate (as template)']) {
     const log = []
     const res = await I.persistForFlowChange(
       async () => { log.push('persist') },

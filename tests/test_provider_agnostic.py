@@ -94,9 +94,36 @@ class DiscoveryTest(unittest.TestCase):
     def test_job_protocol_is_read_from_the_schema(self):
         job = tool("mcp__x__x_3d_generate", ["prompt"])
         job["parameters"]["properties"]["operation"] = {"type": "string", "enum": ["submit", "poll"]}
-        self.assertTrue(presets([job])["preset.text_to_3d"]["args"]["job"])
+        job["parameters"]["properties"]["taskId"] = {"type": "string"}
+        self.assertEqual(presets([job])["preset.text_to_3d"]["args"]["job"],
+                         {"submit": "submit", "poll": "poll", "id": "taskId"})
         plain = presets([tool("mcp__x__x_3d_generate", ["prompt"])])["preset.text_to_3d"]
         self.assertNotIn("job", plain["args"])
+        no_handle = tool("mcp__x__x_3d_generate", ["prompt"])        # polling offered, but no field to name the job
+        no_handle["parameters"]["properties"]["operation"] = {"type": "string", "enum": ["submit", "poll"]}
+        self.assertNotIn("job", presets([no_handle])["preset.text_to_3d"]["args"])
+
+    def test_job_calls_follow_the_schema(self):
+        """Review R4: a strict submit/poll enum with its own id field gets exactly those values, never submit_and_poll."""
+        job = tool("mcp__x__x_3d_generate", ["prompt"])
+        job["parameters"]["properties"]["operation"] = {"type": "string", "enum": ["submit", "poll"]}
+        job["parameters"]["properties"]["taskId"] = {"type": "string"}
+        spec = presets([job])["preset.text_to_3d"]
+        calls = []
+
+        async def fake_call(env, tool_name, args, timeout=None):
+            calls.append(dict(args))
+            if args["operation"] == "submit":
+                return {"status": "queued", "taskId": "t-1"}
+            return {"status": "completed", "url": "https://cdn.example.com/m.glb"}
+
+        original, P.POLL_INTERVAL_S = P.POLL_INTERVAL_S, 0
+        old_call, P.E.call_tool = P.E.call_tool, fake_call
+        try:
+            asyncio.run(P._run_job(None, spec["tool"], {"prompt": "chest"}, 30, Nctx(), "3D", spec["args"]["job"]))
+        finally:
+            P.POLL_INTERVAL_S, P.E.call_tool = original, old_call
+        self.assertEqual(calls, [{"prompt": "chest", "operation": "submit"}, {"operation": "poll", "taskId": "t-1"}])
 
 
 class PortableFlowTest(unittest.TestCase):

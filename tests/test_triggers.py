@@ -132,7 +132,7 @@ class _TriggerCase(unittest.TestCase):
             ops.append({"op": "connect", "from": f"{ref}.{port}", "to": f"{ref}_out.v"})
         flow, results = self.E.graph.apply_ops(self.E.graph.new_flow("Triggered"), ops, self.types)
         self.refs = {r["ref"]: r["node"] for r in results if isinstance(r, dict) and r.get("ref")}
-        return self.E.store.save_flow(self.env, flow, create=True)
+        return self.E.store.save_flow(self.env, flow, create=True, allow_arming=True)   # as if the user activated it
 
     def wait_run(self, run_id):
         self.E.runner.wait(self.env, run_id, 15)
@@ -167,7 +167,7 @@ class TriggeredRunTest(_TriggerCase):
         self.assertEqual(self.sched.tick(self.env), [])
         self.assertEqual(self.T.load_state(self.env), {})
         self.E.store.modify_flow(self.env, flow["id"], lambda f: next(
-            n for n in f["nodes"] if n["id"] == self.refs["clock"])["params"].update(active=True))
+            n for n in f["nodes"] if n["id"] == self.refs["clock"])["params"].update(active=True), allow_arming=True)
         self.sched.tick(self.env)
         self.now[0] += 1800
         self.E.store.modify_flow(self.env, flow["id"], lambda f: next(

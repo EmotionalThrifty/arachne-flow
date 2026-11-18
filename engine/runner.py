@@ -188,11 +188,23 @@ class ValueCorruptionError(X.NodeError):
     """A spilled value on disk no longer matches its metadata and must never feed a node."""
 
 
-def load_value(value):
+def _inside_outputs(env, path) -> bool:
+    """Review R1: a large value is read only from Arachne's own run outputs, never from a path a graph names."""
+    try:
+        base = os.path.normcase(os.path.realpath(os.path.join(S.data_dir(env), "outputs")))
+        real = os.path.normcase(os.path.realpath(path))
+        return os.path.commonpath([base, real]) == base and real != base
+    except (OSError, ValueError, TypeError):
+        return False
+
+
+def load_value(value, env=None):
     """Undo record_value (used when a cached/large value feeds a later run)."""
     if isinstance(value, dict) and isinstance(value.get("$large"), dict):
         meta = value["$large"]
         path = meta.get("path")
+        if path and not _inside_outputs(env, path):
+            raise ValueCorruptionError("a stored value points outside Arachne's run outputs; it is not read")
         if path and os.path.isfile(path):
             with open(path, encoding="utf-8", newline="") as fh:
                 text = fh.read()
@@ -903,7 +915,7 @@ class _Execution:
             selected = sources if port.get("multiple") else sources[-1:]
             values = []
             for src in selected:
-                value = load_value((self.value_of(src[0], scope) or {}).get(src[1]))
+                value = load_value((self.value_of(src[0], scope) or {}).get(src[1]), self.env)
                 if port.get("multiple") and isinstance(value, list):
                     values.extend(value)
                 elif isinstance(value, list) and port.get("type") in ptypes.MEDIA_KINDS + ("file",):
@@ -1016,7 +1028,7 @@ class _Execution:
     def merge_value(self, nid: str, scope=None):
         for src, port in self.in_edges(nid):
             if self.edge_state(src, port, scope) == "live":
-                return load_value((self.value_of(src, scope) or {}).get(port))
+                return load_value((self.value_of(src, scope) or {}).get(port), self.env)
         return None
 
     def loop_gate(self, fid: str, owned: bool):
@@ -1202,7 +1214,7 @@ class _Execution:
             for c in collects:
                 src = sources[c]
                 if src and self.edge_state(src[0], src[1], scope) == "live":
-                    results[c][i] = load_value((self.value_of(src[0], scope) or {}).get(src[1]))
+                    results[c][i] = load_value((self.value_of(src[0], scope) or {}).get(src[1]), self.env)
                     live[c][i] = True
 
         cancelled = False
