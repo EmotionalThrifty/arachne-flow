@@ -77,6 +77,20 @@ class DiscoveryTest(unittest.TestCase):
         self.assertEqual(found["preset.web_search"]["group"], "General")
         self.assertEqual(set(P.PRESET_GROUP.values()) - set(P.PRESET_GROUP_ORDER), set())
 
+    def test_provider_spelling_is_shared_by_all_tools_of_a_server(self):
+        speaks = tool("mcp__acmegen__acmegen_image_generate", ["prompt"])
+        speaks["description"] = "Generate images with AcmeGen models."
+        silent = tool("mcp__acmegen__acmegen_3d_generate", ["prompt"])     # its description never names the server
+        found = presets([speaks, silent])
+        self.assertEqual(found["preset.text_to_image"]["provider"], "AcmeGen")
+        self.assertEqual(found["preset.text_to_3d"]["provider"], "AcmeGen")
+        self.assertEqual(P.provider_label("mcp__fal_ai__generate"), "FAL AI")
+
+    def test_tts_does_not_offer_an_output_path(self):
+        speech = tool("text_to_speech", ["text", "output_path"])
+        names = [p["name"] for p in presets([speech])["preset.tts"]["params"]]
+        self.assertNotIn("output_path", names)
+
     def test_job_protocol_is_read_from_the_schema(self):
         job = tool("mcp__x__x_3d_generate", ["prompt"])
         job["parameters"]["properties"]["operation"] = {"type": "string", "enum": ["submit", "poll"]}

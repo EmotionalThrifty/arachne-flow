@@ -24,9 +24,18 @@ TERMINAL_BLOCKED = {"output": "", "exit_code": -1, "status": "blocked",
                     "error": "BLOCKED: User denied this command. Do NOT retry."}
 FILE_BLOCKED = {"error": "BLOCKED: write to SSH config file(s) (~/.ssh/config) was denied."}
 PLAIN_BLOCKED = "BLOCKED: Command timed out without user response."
+# hermes-agent tools/mcp_tool_handlers.py :292/:306 and tools/mcp_tool_costs.py Charge.refusal, wrapped by tool_error
+TRUST_DENIED = {"error": "The user did not approve running write-capable MCP tool 'mcp__nanogpt__img' on untrusted "
+                         "server 'nanogpt'. The command was NOT run. Do not retry without explicit user direction."}
+TRUST_NO_CHAT = {"error": "MCP tool 'mcp__nanogpt__img' on untrusted server 'nanogpt' was blocked: the approval "
+                          "system was unavailable (fail-closed)."}
+SPEND_LIMIT = {"error": "MCP tool 'mcp__nanogpt__img' on server 'nanogpt' was NOT run: this chat has used about $1.20 "
+                        "on 'nanogpt' and its spend limit is $1.00. This call (about $0.04) needed an explicit approval "
+                        "and did not get one. Do not retry; tell the user the spend limit was reached."}
 
 SHAPES = {"action_gate": ACTION_GATE, "command_gate": COMMAND_GATE, "terminal_pending": TERMINAL_PENDING,
-          "terminal_blocked": TERMINAL_BLOCKED, "file_blocked": FILE_BLOCKED, "plain_blocked": PLAIN_BLOCKED}
+          "terminal_blocked": TERMINAL_BLOCKED, "file_blocked": FILE_BLOCKED, "plain_blocked": PLAIN_BLOCKED,
+          "trust_denied": TRUST_DENIED, "trust_no_chat": TRUST_NO_CHAT, "spend_limit": SPEND_LIMIT}
 TOOLS = [{"name": name, "toolset": "test", "parameters": {"type": "object", "properties": {"text": {"type": "string"}}}}
          for name in SHAPES]
 
@@ -70,6 +79,20 @@ class ApprovalTest(unittest.TestCase):
         first, _ = self.run_twice("terminal_blocked")
         self.assertIn("User denied this command", first["error"])
         self.assertIn("blocked", first["error"].lower())
+
+    def test_mcp_trust_gate_names_the_server_and_the_way_out(self):
+        for name in ("trust_denied", "trust_no_chat"):
+            with self.subTest(name):
+                first, _ = self.run_twice(name)
+                self.assertIn("'nanogpt'", first["error"])
+                self.assertNotIn("mcp__nanogpt__img' (trust", first["error"])
+                self.assertIn("Always allow", first["error"])
+                self.assertIn("Nothing ran", first["error"])
+
+    def test_mcp_spend_limit_is_explained(self):
+        first, _ = self.run_twice("spend_limit")
+        self.assertIn("spend limit", first["error"])
+        self.assertIn("'nanogpt'", first["error"])
 
     def test_ordinary_results_with_status_fields_still_succeed(self):
         for value in ({"status": "ok", "message": "done"}, {"approved": True, "message": None},

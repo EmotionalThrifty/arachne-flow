@@ -49,6 +49,7 @@ class Ctx:
 
 
 def load():
+    import model_tools  # noqa: F401 - registers Hermes' built-in and plugin tools, like a running Hermes
     from tools.mcp_tool_discovery import discover_mcp_tools
     discover_mcp_tools()
     from tools.registry import registry

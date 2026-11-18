@@ -128,6 +128,10 @@ def parse_tool_result(raw) -> Any:
 
 
 _APPROVAL_STATES = {"approval_required", "pending_approval"}
+# Hermes' MCP gates (hermes-agent tools/mcp_tool_handlers.py, tools/mcp_tool_costs.py): a ``trust: untrusted`` server
+# or a spend limit asks a person in the chat before a call. A canvas or trigger run has no chat, so nothing ran.
+_TRUST_GATE = re.compile(r"untrusted server '([^']+)'(?=.*?(?:NOT run|approval system was unavailable))", re.I | re.S)
+_SPEND_GATE = re.compile(r"on server '([^']+)' was NOT run: this chat has used about .*?spend limit", re.I | re.S)
 _APPROVAL_HINT = ("Arachne Flow cannot answer approval prompts: run this step from the chat, "
                   "or allow it in Hermes' approval settings.")
 
@@ -147,6 +151,17 @@ def approval_error(result) -> Optional[str]:
         return f"Hermes blocked this tool call: {text[:1500]}" if text else None
     if not isinstance(result, dict) or result.get("_multimodal"):
         return None
+    text = str(result.get("error") or "")
+    gate = _TRUST_GATE.search(text)
+    if gate:
+        return (f"Hermes asks before every call to the MCP server '{gate.group(1)}' (trust: untrusted), and a canvas "
+                "run has no chat to answer. Nothing ran and nothing was charged. Run this tool once in a chat and "
+                "choose 'Always allow', or change the server's trust in Hermes' MCP settings; then run the node again.")
+    gate = _SPEND_GATE.search(text)
+    if gate:
+        return (f"The spend limit Hermes keeps for the MCP server '{gate.group(1)}' is reached, and a canvas run has no "
+                "chat to approve more. Nothing ran and nothing was charged. Raise the limit in Hermes' MCP settings "
+                "or approve one call in a chat; then run the node again.")
     status = result.get("status")
     if result.get("approval_pending") is True or status in _APPROVAL_STATES or (
             result.get("approved") is False and ("status" in result or "message" in result)):

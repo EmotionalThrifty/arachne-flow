@@ -166,9 +166,11 @@ setting, model compatibility, runtime behavior, privacy, and cost.
   Hermes must instead use the supplied catalog and preserve live-catalog-dependent defaults.
 - Verify exact model id, input/output modalities, required inputs, accepted media count,
   `capabilities.max_images`, supported parameter names, options/ranges, defaults, and price. Fitness
-  and compatibility come before cost. If no live catalog is available, keep a preset's working
-  default/fallback and disclose the limitation rather than inventing a model or setting.
-- Media presets carry a working default `model`; leaving it empty uses the preset fallback. Keep
+  and compatibility come before cost. If no live catalog is available, leave `model` empty (automatic choice)
+  and disclose the limitation rather than inventing a model or setting.
+- Media presets with a model list pick automatically when `model` is empty: the tool's own default if its
+  schema has one, otherwise by `model_auto` (`cheapest`, the default, or `best` = most expensive priced
+  fitting model). Set `model` only for a deliberate, verified choice. Keep
   `size`, `n`, `duration`, `resolution`, `aspect_ratio`, and `quality` empty unless a deliberate choice
   is verified against the selected model. The canvas shows that model's choices and cost estimate.
 - For `llm.complete`, blank `provider` and `model` use Hermes' active model. Set them only as a verified,
@@ -202,10 +204,17 @@ setting, model compatibility, runtime behavior, privacy, and cost.
 |---|---|---|
 | `input.text` | out `text` | `value` |
 | `input.number` | out `number` | `value` |
-| `input.file` | out `file` | `path`, `kind` |
+| `input.file` | out `file` | `path`, `kind` (the user picks the file in the canvas; never set `path` yourself) |
+| `input.json` | out `value` (json) | `value` (object, list or scalar) |
 | `llm.complete` | out `text`; one text input per `{{placeholder}}` in `template` | `template` (default `{{prompt}}`), `system`, `temperature`, `max_tokens`, optional `provider` + `model` (set both; empty = Hermes' active model) |
 | `text.template` | out `text`; inputs from `{{placeholders}}` | `template` |
 | `json.pick` | in `data`, out `value` | `path` (e.g. `items.0.url`) |
+| `json.set` | in `data` + optional `value`, out `value` | `key` (one top-level field; the input object is not changed) |
+| `json.build` | one input per `{{name}}` in `fields`, out `value` | `fields` (one `{{name}}` per field; keeps types, missing → null) |
+| `text.split` | in `text`, out `list` | `separator` (literal, default newline), `trim`, `keep_empty` |
+| `text.join` | in `list`, out `text` | `separator` (default newline) |
+| `list.filter` | in `list` + optional `compare`, out `list` | `op` (`not empty` keeps false/0, `equals` compares JSON types), `compare` |
+| `list.deduplicate` | in `list`, out `list` | — (first occurrence wins) |
 | `logic.if` | in `value` (+ optional `compare`), out `true` / `false` | `op` (`contains`, `not contains`, `equals`, `not equals`, `regex`, `>`, `>=`, `<`, `<=`, `empty`, `not empty`), `compare`, `case_sensitive` |
 | `logic.switch` | in `value`, out `case1`…`caseN` (one per line of `cases`) + `default` | `cases` (one per line, max 20), `op` (`equals`, `contains`, `starts with`, `regex`), `case_sensitive` |
 | `logic.merge` | in `value` (several wires), out `value` | — (first wire whose branch ran wins, in wire order) |
@@ -229,13 +238,18 @@ cached per item); nodes after the Collect run once and must take results from it
 
 Presets (only when the tool exists): `preset.text_to_image` (`prompt` → `image`), `preset.image_edit`
 (`image` multiple + `prompt` → `image`), `preset.image_to_3d` (`image` multiple, up to 4 → `model`),
-`preset.text_to_3d` (`prompt` → `model`), `preset.text_to_video` (`prompt` → `video`),
+`preset.text_to_3d` (`prompt` → `model`), `preset.edit_3d` (`mesh` + `prompt` → `model`; a local `.glb` only when
+the provider accepts model data), `preset.text_to_video` (`prompt` → `video`),
 `preset.image_to_video` (`image` + `prompt` → `video`), `preset.vision` (`image` + `question` → `text`),
 `preset.tts` (`text` → `audio`), `preset.web_search` (`query` → `results` json + `text`),
 `preset.web_extract` (`url` → `text`), `preset.youtube_transcript` (`url` → `text`). 3D/video jobs are slow
 and have `timeout_s`; video `duration` defaults to 6. The 3D runtime trims images to the selected model's
 limit and records that in `progress`, so a four-wire port does not mean the model accepts four views.
-Media presets carry a working default `model`; blank uses the fallback. Model and model-dependent settings
+Presets are found by capability, so they work with whatever Hermes offers: Hermes' own tools come first, every
+further provider of the same step is a variant `preset.<step>~<server>` (hidden in the palette, chosen with the
+node's Provider select). Use the plain type unless the user wants a specific provider; a flow whose variant is
+missing on another machine falls back to the plain step. No provider for a step → that preset does not exist.
+Blank `model` = automatic choice (see the audit). Model and model-dependent settings
 follow the **Model compatibility audit** above: verify deliberate choices against the selected model's
 current catalog instead of copying values between models. Respect `options`, `min`/`max`, `integer`, and
 list limits in the type catalog. Video/3D presets accept additional model settings only when the selected
@@ -308,7 +322,11 @@ Building and validating this example is free. Run a paid image generation only w
 3. **Classify before fixing:** missing/wrong wire; wrong payload extraction; wrong placeholder; invalid
    default/enum/range; unsupported model modality or setting; too many reference images; branch/loop
    mistake; timeout; approval/blocked result; provider/auth/credit error. An approval-held tool did **not**
-   run: answer the approval in chat or adjust Hermes' approval settings. For provider/auth/credit failures,
+   run: answer the approval in chat or adjust Hermes' approval settings. An MCP server set to
+   `trust: untrusted` (or past its spend limit) asks in the chat before every call, which a canvas or
+   trigger run cannot answer: the user runs the tool once in a chat and chooses "Always allow", or changes
+   the server's trust. `web_extract` fails when Hermes' web backend can only search (`web.extract_backend`).
+   Both are Hermes settings, not graph bugs. For provider/auth/credit failures,
    fix the external cause or report it—do not randomly rewrite a correct graph.
 4. **Repair minimally and re-audit everything.** Use `flow_apply` with `base_revision`, preserving
    unrelated working nodes/settings. Read returned `issues`, then `flow_get` and repeat the mandatory

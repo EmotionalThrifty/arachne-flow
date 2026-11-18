@@ -140,16 +140,37 @@ def provider_tools(tools: list, task: str) -> list:
     return list(dict.fromkeys(names))
 
 
+# server id -> how the server's own tool descriptions spell it ("nanogpt" -> "NanoGPT"); learnt in preset_types so
+# every node of one provider shows the same name, even when only some of its tools mention it.
+_SPELLING: dict = {}
+
+
+def _spelling_in(server: str, description: str):
+    found = re.search(r"\b(" + re.escape(server.replace("_", "-")) + r")\b", description or "", re.I) \
+        if len(server) >= 3 else None
+    return found.group(1) if found and found.group(1) != found.group(1).lower() else None
+
+
+def learn_spellings(tools: list) -> None:
+    for tool in tools or []:
+        name = str(tool.get("name") or "")
+        if name.startswith("mcp__"):
+            server = name.split("__")[1]
+            if server not in _SPELLING:
+                spelt = _spelling_in(server, str(tool.get("description") or ""))
+                if spelt:
+                    _SPELLING[server] = spelt
+
+
 def provider_label(tool_name: str, description: str = "") -> str:
-    """Display name of the provider behind a tool. The tool's own description spells it best ("... with NanoGPT
+    """Display name of the provider behind a tool. The server's tool descriptions spell it best ("... with NanoGPT
     3D models" -> ``NanoGPT``); otherwise from the server id: ``fal-ai`` -> ``FAL AI``, ``meshy`` -> ``Meshy``."""
     if not tool_name.startswith("mcp__"):
         return "Hermes"
     server = tool_name.split("__")[1]
-    found = re.search(r"\b(" + re.escape(server.replace("_", "-")) + r")\b", description or "", re.I) \
-        if len(server) >= 3 else None
-    if found and found.group(1) != found.group(1).lower():
-        return found.group(1)
+    spelt = _SPELLING.get(server) or _spelling_in(server, description)
+    if spelt:
+        return spelt
     words = [w for w in re.split(r"[-_ ]+", server) if w]
     return " ".join(w.upper() if len(w) <= 3 else w.capitalize() for w in words) or server
 
@@ -439,6 +460,7 @@ def preset_types(tools: list) -> list:
     """
     from . import nodes as N  # late import: nodes calls us after constructing tool specs
 
+    learn_spellings(tools)
     peers = {t.get("name") for t in tools}
     by_name = {t.get("name"): t for t in tools}
     bases = {t.get("name"): N.tool_node_type(t, peers) for t in tools}
@@ -472,6 +494,7 @@ def preset_types(tools: list) -> list:
         out.append(_spec(bases["text_to_speech"], "preset.tts", "Text to speech", "unmute",
                          "Turn text into spoken audio.",
                          [_input("text", "text", "Text", "The text to read aloud.")], [_output("audio", "audio", "Audio")],
+                         drop=("output_path",),  # Arachne stores the audio itself (run outputs folder)
                          cost="Depends on Hermes' speech provider (Edge TTS is free)"))
     if "web_search" in bases:
         out.append(_spec(bases["web_search"], "preset.web_search", "Web search", "globe",
