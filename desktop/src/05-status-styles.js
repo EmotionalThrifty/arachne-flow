@@ -536,7 +536,32 @@ const CSS = `
 .fc-insp-head { display: flex; align-items: center; gap: 8px; }
 .fc-insp-head > .codicon { font-size: 18px; color: var(--fc-cat); }
 .fc-insp-title { font-weight: 600; font-size: 13.5px; }
-.fc-insp-type { margin: 6px 0 4px; font-size: 11px; color: var(--ui-text-tertiary); overflow-wrap: anywhere; }
+.fc-insp-type { margin: 10px 0 8px; font-size: 11px; color: var(--ui-text-tertiary); overflow-wrap: anywhere; }
+/* Inspector layout B: title, a Run bar that stays on top while scrolling, foldable sections in working order */
+.fc-insp-top { padding-bottom: 10px; }
+.fc-insp-desc { margin-top: 5px; }
+.fc-runbar { position: sticky; top: 0; z-index: 2; padding: 9px 14px; background: var(--ui-bg-elevated);
+  border-bottom: 1px solid var(--ui-stroke-tertiary); }
+.fc-runbar-row { display: flex; align-items: center; flex-wrap: wrap; gap: 6px 8px; min-width: 0; }
+.fc-runbar-row .fc-btn { flex: none; }
+.fc-runbar .fc-cost { margin: 0 0 0 auto; padding: 3px 7px; font-size: 11.5px; flex: 0 1 auto; min-width: 0; max-width: 100%; }
+.fc-runbar .fc-cost b { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.fc-runbar .fc-timing { margin-top: 6px; font-size: 11px; }
+.fc-insp-issues.fc-section { padding: 9px 14px; margin: 0; }
+.fc-fold { border-bottom: 1px solid var(--ui-stroke-tertiary); }
+.fc-fold-head { display: flex; align-items: center; gap: 7px; width: 100%; min-width: 0; padding: 10px 14px; border: 0; background: none;
+  color: var(--ui-text-primary); font: inherit; text-align: left; cursor: pointer; }
+.fc-fold-head:hover { background: color-mix(in srgb, var(--ui-text-primary) 4%, transparent); }
+.fc-fold-head:focus-visible { outline: 1px solid var(--ui-accent); outline-offset: -1px; }
+.fc-fold-head > .codicon { flex: none; color: var(--ui-text-tertiary); }
+.fc-fold-title { flex: none; font-size: 12px; font-weight: 600; }
+.fc-fold-sum { flex: 1; min-width: 0; text-align: right; font-size: 11px; color: var(--ui-text-tertiary);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.fc-fold-body { padding: 0 14px 12px; }
+.fc-fold-body[hidden] { display: none; }
+.fc-fold-body > .fc-row + .fc-check, .fc-fold-body > .fc-check + .fc-row { margin-top: 8px; }
+.fc-fold-body > .fc-btn.danger { margin-top: 2px; }
+.fc-result .fc-insp-error { margin-bottom: 6px; }
 .fc-field { margin-bottom: 11px; }
 .fc-field > label { display: flex; align-items: center; gap: 4px; margin-bottom: 4px; font-size: 11.5px; color: var(--ui-text-secondary); }
 .fc-more-btn { display: flex; align-items: center; gap: 6px; width: 100%; margin: 2px 0 0; padding: 6px 2px; border: 0; background: none;

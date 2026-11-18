@@ -31,7 +31,7 @@ const _internals = {
   // small review findings (E0): per-window hand-off ownership, boot navigation retries, copy feedback
   shouldConsumeHandoff, peekPopout, clearPopout, windowIdGet, WINDOW_ID_KEY, shouldRetryNavigate, clipboardOk,
   splitTemplates, filledInputs,
-  muteTitles, WIRE_TIP_CSS, paramSummary, paramInfo, splitFields, paletteSections, presetGroups, nodeSubline, nodeFooter, toolProvider, autoPick, modelSetting, paletteFolds, allFoldsOpen, setAllFolds, typeTip, typeTipText, modelGroups, filterModelGroups, optionGroups, toolOptionCopy, formatPrice, fillHeight, parseNumberInput, saveBlocker, persistForFlowChange, spacePans, canvasClipboardKey, connectionState, recoveryPlan, LOST_CONTACT_AFTER, categoryColor, portColor, indexTypes, countStatuses, isRunActive, makeApi, loadRunValue, isEditableTarget,
+  muteTitles, WIRE_TIP_CSS, paramSummary, paramInfo, splitFields, inspectorGroups, inspectorSummaries, Fold, paletteSections, presetGroups, nodeSubline, nodeFooter, toolProvider, autoPick, modelSetting, paletteFolds, allFoldsOpen, setAllFolds, typeTip, typeTipText, modelGroups, filterModelGroups, optionGroups, toolOptionCopy, formatPrice, fillHeight, parseNumberInput, saveBlocker, persistForFlowChange, spacePans, canvasClipboardKey, connectionState, recoveryPlan, LOST_CONTACT_AFTER, categoryColor, portColor, indexTypes, countStatuses, isRunActive, makeApi, loadRunValue, isEditableTarget,
   // accessibility (U-8): keyboard decisions for menus and dialogs
   menuKeyNav, menuRowsIn, FlowMenu, trapFocus, activatesOn,
   modelSetting, fieldControl, rangeHint, numberIssue, choiceValue, multiValues, mediaValues, addMediaPath, toggleChoice, effectiveValues, estimateCost,

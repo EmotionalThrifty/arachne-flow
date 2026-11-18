@@ -861,7 +861,7 @@ function Lightbox({ api, ctx, runId, items, at, onMove, onClose }) {
     items.slice(0, 60).map((it, i) => h(LightboxThumb, { key: it.key, api, runId, item: it, active: i === at, onClick: () => onMove(i) }))) : null))
 }
 
-function NodeResult({ state, node, spec, runId, api, onOpenMedia, onOpenValue }) {
+function NodeResult({ state, node, spec, runId, api, onOpenMedia }) {
   const outputs = state.outputs || {}
   const order = ['media', 'value', 'file', 'text', 'number']
   const rank = (k) => (order.includes(k) ? order.indexOf(k) : 50)
@@ -870,16 +870,9 @@ function NodeResult({ state, node, spec, runId, api, onOpenMedia, onOpenValue })
     .sort((a, b) => rank(a[0]) - rank(b[0]))
   const outSpec = new Map(((spec && spec.outputs) || []).map((o) => [o.name, o]))
   const raw = outputs.result
-  const s = STATUS[state.status] || STATUS.queued
-  return h('div', { className: 'fc-section' },
-    h('h4', null, 'Last result'),
-    h('div', { className: 'fc-row' },
-      onOpenValue ? h('button', { type: 'button', className: 'fc-btn', 'data-fc-view-inputs': node.id, onClick: () => onOpenValue({ nodeId: node.id, field: 'inputs' }) }, 'View recorded inputs') : null,
-      h('span', { className: 'fc-help' }, state.input_history ? ('Input history: ' + state.input_history.status) : 'Inputs not recorded')),
-    state.input_history?.reason ? h('div', { className: 'fc-help' }, state.input_history.reason) : null,
-    h('div', { className: 'fc-row' }, h(StatusBadge, { state }), h('span', { className: 'fc-muted' }, s.label)),
+  return h('div', { className: 'fc-result', 'data-fc-result': state.status },
     state.error ? h('div', { className: 'fc-pre-wrap fc-insp-error' },
-      h('div', { className: 'fc-node-error', style: { margin: '8px 0 0', maxHeight: 'none', paddingRight: 30 } }, state.error),
+      h('div', { className: 'fc-node-error', style: { margin: '4px 0 0', maxHeight: 'none', paddingRight: 30 } }, state.error),
       h(CopyBtn, { text: state.error, title: 'Copy error' })) : null,
     entries.length === 0 && !state.error && raw === undefined ? h('div', { className: 'fc-help' }, state.status === 'running' ? 'Running…' : 'No output yet.') : null,
     entries.map(([port, value]) => {
@@ -897,6 +890,20 @@ function NodeResult({ state, node, spec, runId, api, onOpenMedia, onOpenValue })
       h('summary', null, 'Raw tool result'),
       h(OutputValue, { api, runId, nodeId: node.id, port: 'result', value: raw, onOpenMedia })) : null)
 }
+
+/** One inspector section of layout B: a header button that folds it, with a short summary while folded. The body
+ *  stays mounted (only hidden), so typing state and lookups survive folding. */
+function Fold({ id, icon, title, summary, open, onToggle, children }) {
+  return h('div', { className: `fc-fold${open ? ' open' : ''}`, 'data-fc-fold': id },
+    h('button', { type: 'button', className: 'fc-fold-head', 'aria-expanded': open ? 'true' : 'false', onClick: onToggle },
+      h(Icon, { name: open ? 'chevron-down' : 'chevron-right' }),
+      h(Icon, { name: icon }),
+      h('span', { className: 'fc-fold-title' }, title),
+      !open && summary ? h('span', { className: 'fc-fold-sum', title: summary }, summary) : null),
+    h('div', { className: 'fc-fold-body', hidden: !open }, children))
+}
+// Which inspector sections are open, shared by every node of this window (the result section follows the run).
+const INSPECTOR_FOLDS = { model: true, inputs: true, settings: true, advanced: false }
 
 /** Inspector "Run" section: live time while running, your measured runs, the typical text (G9). */
 function TimingInfo({ exp, state }) {
@@ -1081,8 +1088,50 @@ function NodePanel(p) {
   const isTool = (spec && spec.kind === 'tool') || (!spec && String(node.type).startsWith('tool:'))
   const nodeIssues = (p.issues || []).filter((i) => i.node === node.id)
     .sort((a, b) => (a.level === 'error' ? 0 : 1) - (b.level === 'error' ? 0 : 1))
+  // Layout B (18.11.2026): Run bar on top, then foldable sections in working order.
+  const autoField = ms ? (fields.find((f) => f.name === ms.param) || {}).auto : null
+  const modelNames = new Set([ms && ms.param, autoField].filter(Boolean))
+  const field = (f) => h(ParamField, {
+    key: f.name,
+    spec: f,
+    value: params[f.name],
+    params,
+    port: portNames.has(f.name),
+    api: p.api,
+    nodeType: node.type,
+    source: sources[f.name],
+    types,
+    onChange: (v) => p.onUpdateNode(node.id, { params: { [f.name]: v } }, `p:${node.id}:${f.name}`),
+    onChangeMany: (patch) => p.onUpdateNode(node.id, { params: patch }),
+    onBrowse: p.onPickFile ? (kind) => p.onPickFile(kind, node.id) : null,
+    flowId: flow && flow.id,
+    modelField: modelFields[f.name],
+    modelName,
+    note: ms && f.name === ms.param ? modelNote : imageLimits[f.name] ? imageLimits[f.name].note : null
+  })
+  const groups = inspectorGroups(split.main, { modelNames, portNames })
+  const providerPick = spec && Array.isArray(spec.providers) && spec.providers.length ? spec.providers : null
+  const providerLabel = providerPick
+    ? ((providerPick.find((c) => c.type === node.type) || providerPick[0]).label || '').replace(' (best available)', '')
+    : isTool ? toolProvider(node.type, spec && spec.description) : ''
+  const modelLabel = ms ? (ms.auto ? `Auto (${ms.mode})` : ms.model) : params.model ? String(params.model) : ''
+  const wiredInputs = groups.inputs.filter((f) => sources[f.name]).length + dynamic.filter((q) => sources[q.name]).length
+  const summary = inspectorSummaries({
+    provider: providerLabel, model: modelLabel, inputs: groups.inputs.length + dynamic.length, wired: wiredInputs,
+    settings: groups.settings.length, more: split.more.length,
+    status: state ? (STATUS[state.status] || STATUS.queued).label : '', cache: cacheOn(params, spec), recorded: node.record_inputs === true
+  })
+  const [folds, setFolds] = useState(() => ({ ...INSPECTOR_FOLDS }))
+  const fold = (id) => ({ open: folds[id] !== undefined ? !!folds[id] : !!state, onToggle: () => {
+    const open = !(folds[id] !== undefined ? folds[id] : !!state)
+    if (id !== 'result') INSPECTOR_FOLDS[id] = open
+    setFolds((f) => ({ ...f, [id]: open }))
+  } })
+  const finished = state && ['done', 'cached', 'error'].includes(state.status) ? `${run.id}:${state.status}` : ''
+  useEffect(() => { if (finished) setFolds((f) => ({ ...f, result: true })) }, [finished])
+  const hasModel = isTool || !!providerPick || groups.model.length > 0 || !!(llm && llm.model) || extrasShown.length > 0
   return h('div', { className: 'fc-side fc-inspector', 'data-fc-inspector': node.id },
-    h('div', { className: 'fc-section' },
+    h('div', { className: 'fc-section fc-insp-top' },
       h('div', { className: 'fc-insp-head', style: { '--fc-cat': spec ? categoryColor(spec.category) : 'var(--ui-red)' } },
         h(Icon, { name: (spec && spec.icon) || 'question' }),
         h('input', {
@@ -1091,7 +1140,28 @@ function NodePanel(p) {
           placeholder: (spec && spec.title) || node.type,
           onChange: (e) => p.onUpdateNode(node.id, { title: e.target.value }, `title:${node.id}`)
         })),
-      h('div', { className: 'fc-insp-type' }, spec ? `${spec.category} · ${spec.type}` : `${node.type} (unknown)`),
+      spec && spec.description ? h('div', { className: 'fc-help fc-insp-desc' }, spec.description) : null,
+      !spec && !isNote ? h('div', { className: 'fc-node-error', style: { margin: '6px 0 0' } },
+        isTool ? 'This tool is not available (missing, blocked or its MCP server is off). Pick another tool or remove the node.'
+          : `Unknown node type “${node.type}”.`) : null),
+    !isNote ? h('div', { className: 'fc-runbar', 'data-fc-runbar': node.id },
+      h('div', { className: 'fc-runbar-row' },
+        h('button', { className: 'fc-btn primary', disabled: p.running, title: 'Run this node and everything it depends on', onClick: () => p.onRunTo(node.id) },
+          h(Icon, { name: 'debug-continue' }), 'Run up to here'),
+        state ? h(StatusBadge, { state }) : null,
+        cost ? h('span', { className: 'fc-cost', 'data-fc-cost': cost.label },
+          h(Icon, { name: 'credit-card' }), h('b', null, cost.label), h(InfoTip, { lines: cost.lines })) : null),
+      h(TimingInfo, { exp, state })) : null,
+    nodeIssues.length ? h('div', { className: 'fc-section fc-insp-issues' }, nodeIssues.map((i, k) => h('div', { key: k, className: `fc-issue ${i.level}` },
+      h(Icon, { name: i.level === 'error' ? 'error' : 'warning' }), h('span', null, i.message)))) : null,
+    isTriggerType(node.type) ? h(TriggerGuard, {
+      node, flow, api, busy: !!p.running, onSwitch: (id, active, rotate) => p.onTriggerSwitch && p.onTriggerSwitch(id, active, rotate)
+    }) : null,
+    node.type === 'output.send_message' ? h(MessagingGuard, {
+      node, busy: !!p.running, onOptIn: (id, enable, allowAttachments) => p.onMessagingOptIn && p.onMessagingOptIn(id, enable, allowAttachments)
+    }) : null,
+    hasModel ? h(Fold, { id: 'model', icon: 'server-process', title: isTool && !providerPick && !groups.model.length ? 'Tool' : 'Provider & model',
+      summary: summary.model || (isTool ? String(node.type).replace(/^tool:/, '') : ''), ...fold('model') },
       isTool ? h('div', { className: 'fc-field fc-tool-pick' },
         h('label', null, 'Tool', h(InfoTip, { lines: ['Which Hermes or MCP tool this node calls.', 'Swapping keeps settings and wires whose names still match.'] })),
         h(ToolSelect, {
@@ -1101,50 +1171,15 @@ function NodePanel(p) {
           title: 'Swap the tool; matching settings and wires are kept',
           onChange: (t) => t && t !== node.type && p.onChangeType(node.id, t)
         })) : null,
-      spec && Array.isArray(spec.providers) && spec.providers.length ? h('div', { className: 'fc-field fc-provider-pick' },
+      providerPick ? h('div', { className: 'fc-field fc-provider-pick' },
         h('label', null, 'Provider', h(InfoTip, { lines: ['Which service runs this step. Every provider found in your Hermes setup is listed.', 'Switching keeps wires and text; the model is picked again from the new provider.'] })),
-        spec.providers.length > 1 ? h('select', {
+        providerPick.length > 1 ? h('select', {
           className: 'fc-input',
-          value: spec.providers.some((c) => c.type === node.type) ? node.type : spec.type,
+          value: providerPick.some((c) => c.type === node.type) ? node.type : spec.type,
           onChange: (e) => e.target.value && e.target.value !== node.type && p.onChangeType(node.id, e.target.value)
-        }, spec.providers.map((c) => h('option', { key: c.type, value: c.type }, c.label)))
-          : h('div', { className: 'fc-help' }, spec.providers[0].label.replace(' (best available)', ''))) : null,
-      !spec && !isNote ? h('div', { className: 'fc-node-error', style: { margin: '6px 0 0' } },
-        isTool ? 'This tool is not available (missing, blocked or its MCP server is off). Pick another tool or remove the node.'
-          : `Unknown node type “${node.type}”.`) : null,
-      spec && spec.description ? h('div', { className: 'fc-help' }, spec.description) : null,
-      nodeIssues.length ? h('div', { className: 'fc-insp-issues' }, nodeIssues.map((i, k) => h('div', { key: k, className: `fc-issue ${i.level}` },
-        h(Icon, { name: i.level === 'error' ? 'error' : 'warning' }), h('span', null, i.message)))) : null),
-    isTriggerType(node.type) ? h(TriggerGuard, {
-      node, flow, api, busy: !!p.running, onSwitch: (id, active, rotate) => p.onTriggerSwitch && p.onTriggerSwitch(id, active, rotate)
-    }) : null,
-    node.type === 'output.send_message' ? h(MessagingGuard, {
-      node, busy: !!p.running, onOptIn: (id, enable, allowAttachments) => p.onMessagingOptIn && p.onMessagingOptIn(id, enable, allowAttachments)
-    }) : null,
-    fields.length > 0 || dynamic.length > 0 ? h('div', { className: 'fc-section' },
-      h('h4', null, isNote ? 'Note' : 'Settings'),
-      dynamic.map((q) => h('div', { key: `dyn-${q.name}`, className: 'fc-field' },
-        h('label', null, `{{${q.name}}}`, h(InfoTip, { lines: [`Input created by {{${q.name}}} in the template.`, 'Its value comes from the wire connected to this input on the canvas.'] })),
-        sources[q.name] ? h('div', { className: 'fc-linked' }, h(Icon, { name: 'link' }), 'from', h('b', null, sources[q.name]))
-          : h('div', { className: 'fc-help' }, 'Not connected — drag a wire into this input, or the text stays empty.'))),
-      (moreOpen ? [...split.main, ...split.more] : split.main).map((f) => h(ParamField, {
-        key: f.name,
-        spec: f,
-        value: params[f.name],
-        params,
-        port: portNames.has(f.name),
-        api: p.api,
-        nodeType: node.type,
-        source: sources[f.name],
-        types,
-        onChange: (v) => p.onUpdateNode(node.id, { params: { [f.name]: v } }, `p:${node.id}:${f.name}`),
-        onChangeMany: (patch) => p.onUpdateNode(node.id, { params: patch }),
-        onBrowse: p.onPickFile ? (kind) => p.onPickFile(kind, node.id) : null,
-        flowId: flow && flow.id,
-        modelField: modelFields[f.name],
-        modelName,
-        note: ms && f.name === ms.param ? modelNote : imageLimits[f.name] ? imageLimits[f.name].note : null
-      })),
+        }, providerPick.map((c) => h('option', { key: c.type, value: c.type }, c.label)))
+          : h('div', { className: 'fc-help' }, providerLabel)) : null,
+      groups.model.map(field),
       llm && llm.model ? h('div', { className: 'fc-extra', 'data-fc-llm-info': llm.model },
         h('div', { className: 'fc-subhead' }, h(Icon, { name: 'info' }), h('span', null, `Model info · ${llm.model}`)),
         llmRows.map(([k, v]) => h('div', { key: k, className: 'fc-info-row' },
@@ -1165,10 +1200,16 @@ function NodePanel(p) {
             onBrowse: p.onPickFile ? (kind) => p.onPickFile(kind, node.id) : null,
             modelField: xf, modelName
           })
-        })) : null,
-      cost ? h('div', { className: 'fc-cost', 'data-fc-cost': cost.label },
-        h(Icon, { name: 'credit-card' }), h('span', null, 'Cost'), h('b', null, cost.label),
-        h(InfoTip, { lines: cost.lines })) : null,
+        })) : null) : null,
+    groups.inputs.length || dynamic.length ? h(Fold, { id: 'inputs', icon: 'plug', title: 'Inputs', summary: summary.inputs, ...fold('inputs') },
+      dynamic.map((q) => h('div', { key: `dyn-${q.name}`, className: 'fc-field' },
+        h('label', null, `{{${q.name}}}`, h(InfoTip, { lines: [`Input created by {{${q.name}}} in the template.`, 'Its value comes from the wire connected to this input on the canvas.'] })),
+        sources[q.name] ? h('div', { className: 'fc-linked' }, h(Icon, { name: 'link' }), 'from', h('b', null, sources[q.name]))
+          : h('div', { className: 'fc-help' }, 'Not connected — drag a wire into this input, or the text stays empty.'))),
+      groups.inputs.map(field)) : null,
+    groups.settings.length || split.more.length || node.type === 'input.file' ? h(Fold, { id: 'settings', icon: isNote ? 'note' : 'settings',
+      title: isNote ? 'Note' : 'Settings', summary: summary.settings, ...fold('settings') },
+      (moreOpen ? [...groups.settings, ...split.more] : groups.settings).map(field),
       node.type === 'input.file' && p.onPickFile && p.onAddFileBelow ? h('button', {
         type: 'button', className: 'fc-btn ghost fc-add-file', 'data-fc-add-file': '1',
         title: 'Pick one more file; it becomes its own File node below this one',
@@ -1181,22 +1222,24 @@ function NodePanel(p) {
         h(Icon, { name: moreOpen ? 'chevron-up' : 'chevron-down' }),
         moreOpen ? 'Fewer settings' : `More settings (${split.more.length})`,
         h('span', { className: 'fc-muted' }, moreOpen ? '' : split.more.slice(0, 3).map((f) => f.label || f.name).join(', ') + (split.more.length > 3 ? '…' : ''))) : null) : null,
-    !isNote ? h('div', { className: 'fc-section' },
-      h('h4', null, 'Run'),
-      h('div', { className: 'fc-row' },
-        h('button', { className: 'fc-btn', disabled: p.running, title: 'Run this node and everything it depends on', onClick: () => p.onRunTo(node.id) },
-          h(Icon, { name: 'debug-continue' }), 'Run up to here'),
+    !isNote ? h(Fold, { id: 'result', icon: 'output', title: 'Result', summary: summary.result, ...fold('result') },
+      state ? h(NodeResult, { state, node, spec, runId: run.id, api, onOpenMedia: p.onOpenMedia })
+        : h('div', { className: 'fc-help' }, 'Not run yet. Run the node to see its result here.')) : null,
+    h(Fold, { id: 'advanced', icon: 'tools', title: 'Advanced', summary: isNote ? '' : summary.advanced, ...fold('advanced') },
+      !isNote ? h('div', { className: 'fc-row' },
         h('label', { className: 'fc-check', title: 'Reuse the previous result when nothing upstream changed' },
           h('input', { type: 'checkbox', checked: cacheOn(params, spec), disabled: !!spec && spec.cacheable === false, onChange: (e) => p.onUpdateNode(node.id, { params: cachePatch(e.target.checked, spec) }) }),
           'Use cache'),
         h(InfoTip, { lines: ['Run up to here: runs this node plus everything it depends on, nothing after it.',
           'Use cache: when the settings and inputs are unchanged, the last result is reused instead of calling the tool again. Turn off for things that should change every run (news, random).',
-          'Off by default for tools that may change something (write, send, post); on for tools that only read.'] })),
-      h('label', { className: 'fc-check', title: 'Off by default. Stores wired inputs after conversion in local run history. Best-effort redaction is not guaranteed to find every secret.' },
-        h('input', { type: 'checkbox', 'data-fc-record-inputs': node.id, checked: node.record_inputs === true, onChange: e => p.onUpdateNode(node.id, { record_inputs: e.target.checked }) }), 'Record wired inputs (may contain sensitive data)'),
-      h(TimingInfo, { exp, state })) : null,
-    state && !isNote ? h(NodeResult, { state, node, spec, runId: run.id, api, onOpenMedia: p.onOpenMedia, onOpenValue: p.onOpenValue }) : null,
-    h('div', { className: 'fc-section' },
+          'Off by default for tools that may change something (write, send, post); on for tools that only read.'] })) : null,
+      !isNote ? h('label', { className: 'fc-check', title: 'Off by default. Stores wired inputs after conversion in local run history. Best-effort redaction is not guaranteed to find every secret.' },
+        h('input', { type: 'checkbox', 'data-fc-record-inputs': node.id, checked: node.record_inputs === true, onChange: e => p.onUpdateNode(node.id, { record_inputs: e.target.checked }) }), 'Record wired inputs (may contain sensitive data)') : null,
+      state && !isNote ? h('div', { className: 'fc-row' },
+        p.onOpenValue ? h('button', { type: 'button', className: 'fc-btn', 'data-fc-view-inputs': node.id, onClick: () => p.onOpenValue({ nodeId: node.id, field: 'inputs' }) }, 'View recorded inputs') : null,
+        h('span', { className: 'fc-help' }, state.input_history ? ('Input history: ' + state.input_history.status) : 'Inputs not recorded')) : null,
+      state && state.input_history && state.input_history.reason ? h('div', { className: 'fc-help' }, state.input_history.reason) : null,
+      h('div', { className: 'fc-insp-type' }, spec ? `${spec.category} · ${spec.type}` : `${node.type} (unknown)`),
       h('button', { className: 'fc-btn danger', onClick: p.onDelete }, h(Icon, { name: 'trash' }), 'Delete node')))
 }
 

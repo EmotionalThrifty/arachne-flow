@@ -791,6 +791,8 @@ def main() -> int:
                 problems.append(f"tool picker label clipped: {fit}")
             if fit and tool_type.startswith("tool:") and tool_type[5:] not in fit.get("hover", ""):
                 problems.append(f"tool picker tooltip lacks the raw tool name: {fit}")
+        if s in ("model_picker", "tool_options", "llm_info") and insp and insp.get("scrollW", 0) > insp.get("clientW", 0) + 1:
+            problems.append(f"inspector scrolls horizontally: {insp.get('scrollW')} > {insp.get('clientW')}")
         if s in ("inspector", "inspector_error", "tool_swap"):
             if not insp:
                 problems.append("inspector did not open for the selected node")
@@ -805,9 +807,15 @@ def main() -> int:
                 problems.append(f"tool picker: {insp.get('tool')} ({insp.get('toolOptions')} options)")
             if insp.get("images", 0) < 1 or not insp.get("chips"):
                 problems.append(f"inspector media: images={insp.get('images')} chips={insp.get('chips')}")
-            for heading in ("Settings", "Run", "Last result"):
+            if not {"Provider & model", "Tool"} & set(insp.get("sections") or []):
+                problems.append(f"inspector has no provider/tool section: {insp.get('sections')}")
+            for heading in ("Result", "Advanced"):   # layout B (18.11.2026)
                 if heading not in (insp.get("sections") or []):
                     problems.append(f"inspector section missing: {heading} in {insp.get('sections')}")
+            if not insp.get("runbar"):
+                problems.append("inspector has no Run bar")
+            if "result:open" not in (insp.get("folds") or []):
+                problems.append(f"result section not opened after the run: {insp.get('folds')}")
         if s == "inspector_error" and insp:
             if "always fails" not in (insp.get("error") or "") or not insp.get("errorCopy"):
                 problems.append(f"inspector error: {insp.get('error')!r}, copy={insp.get('errorCopy')}")

@@ -338,6 +338,31 @@ function splitFields(fields, { spec, params = {}, connected = new Set(), modelFi
   return { main, more }
 }
 
+/** Inspector layout B (18.11.2026): the visible settings sorted into the sections a user works through —
+ *  Provider & model (the model and its auto mode, an LLM model field), Inputs (settings that are also input ports)
+ *  and Settings (the rest). Folded "more" settings always stay under Settings. Pure, tested. */
+function inspectorGroups(fields, { modelNames = new Set(), portNames = new Set() } = {}) {
+  const out = { model: [], inputs: [], settings: [] }
+  for (const f of fields || []) {
+    if (modelNames.has(f.name) || f.kind === 'model') out.model.push(f)
+    else if (portNames.has(f.name)) out.inputs.push(f)
+    else out.settings.push(f)
+  }
+  return out
+}
+
+/** One-line summaries a folded inspector section shows on the right. Pure, tested. */
+function inspectorSummaries({ provider = '', model = '', inputs = 0, wired = 0, settings = 0, more = 0, status = '',
+  cache = true, recorded = false } = {}) {
+  return {
+    model: [provider, model].filter(Boolean).join(' · '),
+    inputs: inputs ? `${wired} of ${inputs} connected` : '',
+    settings: settings || more ? `${settings} setting${settings === 1 ? '' : 's'}${more ? ` · ${more} more` : ''}` : '',
+    result: status || 'not run yet',
+    advanced: `cache ${cache ? 'on' : 'off'}${recorded ? ' · inputs recorded' : ''}`
+  }
+}
+
 /** Palette groups → sections: Ready-made presets first, built-ins, then Hermes tools and MCP servers. Each section
  *  has an icon and a colour; `flat` = items render without category sub-headers. Pure, tested. */
 // Sub-groups of "Ready-made" (engine: presets.PRESET_GROUP_ORDER); unknown groups follow alphabetically.
