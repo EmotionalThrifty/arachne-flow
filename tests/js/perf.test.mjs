@@ -223,7 +223,7 @@ test('edges are drawn in world coordinates inside the transformed layer', () => 
   assert.ok(SOURCE.includes('function edgePathWorld('), 'edgePathWorld exists')
   assert.ok(!SOURCE.includes('worldToScreen(view, portPosition'), 'edge endpoints stay in world space')
   const edges = block('const edgeEls = flow.edges.map', 'const portClass = wire')
-  assert.ok(edges.includes('edgePathWorld(pa, pb)'), 'visible and hit paths share one world-space geometry')
+  assert.ok(edges.includes('edgeRouteWorld(pa, pb, boxOf(a), boxOf(b))'), 'visible and hit paths share one world-space geometry')
   assert.ok(edges.includes('screenToWorld(view, wire.point)'), 'the dragging wire converts its screen tip once')
   assert.ok(edges.includes('edgePathWorld(p0, tip)') && edges.includes('edgePathWorld(tip, p0)'),
     'the temporary wire is world-space too, either direction')

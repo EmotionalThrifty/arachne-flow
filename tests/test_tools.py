@@ -243,8 +243,8 @@ class SpikeGoneTest(unittest.TestCase):
     def test_version_is_1_0_0_everywhere(self):
         with open(os.path.join(helpers.ROOT, "plugin.yaml"), encoding="utf-8") as fh:
             manifest = yaml.safe_load(fh)
-        self.assertEqual(str(manifest["version"]), "1.0.0")
-        self.assertEqual(helpers.load_engine().VERSION, "1.0.0")
+        self.assertEqual(str(manifest["version"]), "1.1.0")
+        self.assertEqual(helpers.load_engine().VERSION, "1.1.0")
 
     def test_no_personal_names_in_code(self):
         hits = []

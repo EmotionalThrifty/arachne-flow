@@ -1,7 +1,7 @@
 name: arachne-flow
 label: Arachne Flow
 kind: standalone
-version: 1.0.0
+version: 1.1.0
 manifest_version: 2
 api_version: 1
 author: EmotionalThrifty

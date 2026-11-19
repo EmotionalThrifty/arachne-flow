@@ -376,6 +376,10 @@ const CSS = `
 .fc-edge.selected { stroke-width: 3.6; opacity: 1; }
 .fc-edge.flowing { opacity: 1; stroke-dasharray: 7 6; animation: fc-dash .55s linear infinite; }
 .fc-edge.dead { opacity: .28; }
+.fc-edge.faded { opacity: .16; }
+.fc-edge.lit { stroke-width: 3.2; opacity: 1; }
+.fc-edge.lit.dead { opacity: .5; }
+.fc-edges-top { z-index: 1; }
 .fc-edge-hit { fill: none; stroke: transparent; stroke-width: 14; pointer-events: stroke; cursor: pointer; vector-effect: non-scaling-stroke; }
 .fc-wire { fill: none; stroke-width: 2.4; stroke-dasharray: 6 5; vector-effect: non-scaling-stroke; }
 @keyframes fc-dash { to { stroke-dashoffset: -13; } }

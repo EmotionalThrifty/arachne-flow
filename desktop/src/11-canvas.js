@@ -45,6 +45,7 @@ function Canvas(p) {
   const [menu, setMenu] = useState(null)
   const [quick, setQuick] = useState(null)
   const [size, setSize] = useState({ w: 0, h: 0 })
+  const [hoverNode, setHoverNode] = useState(null)
 
   useLayoutEffect(() => {
     const el = ref.current
@@ -456,6 +457,10 @@ function Canvas(p) {
   const colorOf = (t) => portColor(t, types.portTypes)
   const stateOf = (id) => (run && run.nodes ? run.nodes[id] : null)
   const hiddenEdge = wire && wire.detach ? wire.detach.id : null
+  // Edge layout A: the wires of the hovered (or the one selected) node are drawn bold above the cards, the rest fade.
+  const lit = edgeFocus(flow.edges, { hover: hoverNode, selection: p.selection, selectedEdge: p.selectedEdge, dragging: !!wire })
+  const boxOf = (n) => ({ x: n.x, y: n.y, w: NODE_W, h: (p.heightsRef && p.heightsRef.current[n.id]) || 110 })
+  const litEls = []
 
   const edgeEls = flow.edges.map((ed) => {
     if (ed.id === hiddenEdge) return null
@@ -470,11 +475,14 @@ function Canvas(p) {
     const pa = portPosition(a, la, 'out', ed.from.port)
     const pb = portPosition(b, lb, 'in', ed.to.port)
     const op = la.outputs.find((q) => q.name === ed.from.port)
-    const d = edgePathWorld(pa, pb)
+    const d = edgeRouteWorld(pa, pb, boxOf(a), boxOf(b))
     const ts = stateOf(b.id)
     const ss = stateOf(a.id)
+    const on = !!lit && lit.has(ed.id)
     const cls = ['fc-edge', p.selectedEdge === ed.id && 'selected', ts && ts.status === 'running' && 'flowing',
-      edgeDead(ss, ts, ed.from.port) && 'dead'].filter(Boolean).join(' ')
+      edgeDead(ss, ts, ed.from.port) && 'dead', lit && !on && 'faded'].filter(Boolean).join(' ')
+    const stroke = colorOf(op ? op.type : 'any')
+    if (on) litEls.push(h('path', { key: ed.id, d, className: `${cls} lit`, 'data-fc-lit': ed.id, style: { stroke } }))
     return h('g', { key: ed.id },
       h('path', {
         d,
@@ -487,7 +495,7 @@ function Canvas(p) {
           p.onSelectEdge(ed.id)
         }
       }),
-      h('path', { d, className: cls, style: { stroke: colorOf(op ? op.type : 'any') } }))
+      on ? null : h('path', { d, className: cls, style: { stroke } }))
   })
 
   let wireEl = null
@@ -557,7 +565,13 @@ function Canvas(p) {
   },
   wire ? h('style', { 'data-fc-wire-tips': '1' }, WIRE_TIP_CSS) : null,
   h('svg', { className: 'fc-edges', style: { transform: `translate(${view.x}px, ${view.y}px) scale(${view.zoom})` } }, edgeEls, wireEl),
-  h('div', { className: 'fc-world', style: { transform: `translate(${view.x}px, ${view.y}px) scale(${view.zoom})` } }, nodeEls),
+  h('div', {
+    className: 'fc-world',
+    style: { transform: `translate(${view.x}px, ${view.y}px) scale(${view.zoom})` },
+    onPointerOver: (e) => { const el = e.target.closest && e.target.closest('[data-fc-node]'); setHoverNode(el ? el.getAttribute('data-fc-node') : null) },
+    onPointerOut: (e) => { const el = e.relatedTarget && e.relatedTarget.closest && e.relatedTarget.closest('[data-fc-node]'); if (!el) setHoverNode(null) }
+  }, nodeEls),
+  litEls.length ? h('svg', { className: 'fc-edges fc-edges-top', style: { transform: `translate(${view.x}px, ${view.y}px) scale(${view.zoom})` } }, litEls) : null,
   rect ? h('div', {
     className: 'fc-rect',
     style: { left: Math.min(rect.x0, rect.x1), top: Math.min(rect.y0, rect.y1), width: Math.abs(rect.x1 - rect.x0), height: Math.abs(rect.y1 - rect.y0) }

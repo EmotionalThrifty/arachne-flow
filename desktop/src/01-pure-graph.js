@@ -275,6 +275,45 @@ function edgePathWorld(a, b) {
   return edgePath(a, b, 1)
 }
 
+/** Edge layout A (18.11.2026): a wire whose input is not clearly right of its output (backwards, or stacked in one
+ *  column) runs around below both cards — right, down, left, up — instead of cutting behind them, as n8n does.
+ *  Forward wires keep the curve. `boxA`/`boxB` are the cards' world rects {x, y, w, h}. Pure, tested. */
+const BACK_GAP = 24
+function edgeRouteWorld(a, b, boxA, boxB) {
+  if (!boxA || !boxB || b.x >= a.x + 2 * BACK_GAP) return edgePathWorld(a, b)
+  const below = Math.max(boxA.y + boxA.h, boxB.y + boxB.h) + BACK_GAP
+  return roundedPath([a, { x: a.x + BACK_GAP, y: a.y }, { x: a.x + BACK_GAP, y: below }, { x: b.x - BACK_GAP, y: below },
+    { x: b.x - BACK_GAP, y: b.y }, b], 12)
+}
+
+/** Polyline with rounded corners (quadratic bends of radius ≤ r, never longer than half a segment). */
+function roundedPath(pts, r) {
+  const f = (n) => n.toFixed(1)
+  let d = `M ${f(pts[0].x)} ${f(pts[0].y)}`
+  for (let i = 1; i < pts.length - 1; i++) {
+    const p = pts[i - 1]
+    const c = pts[i]
+    const n = pts[i + 1]
+    const l1 = Math.hypot(c.x - p.x, c.y - p.y)
+    const l2 = Math.hypot(n.x - c.x, n.y - c.y)
+    if (!l1 || !l2) continue
+    const rr = Math.min(r, l1 / 2, l2 / 2)
+    d += ` L ${f(c.x + (p.x - c.x) / l1 * rr)} ${f(c.y + (p.y - c.y) / l1 * rr)}` +
+      ` Q ${f(c.x)} ${f(c.y)} ${f(c.x + (n.x - c.x) / l2 * rr)} ${f(c.y + (n.y - c.y) / l2 * rr)}`
+  }
+  const z = pts[pts.length - 1]
+  return `${d} L ${f(z.x)} ${f(z.y)}`
+}
+
+/** Which wires to light up: those of the hovered node, else of the one selected node, plus a selected wire.
+ *  Returns null when nothing is in focus (all wires look normal) or while a wire is being dragged. Pure, tested. */
+function edgeFocus(edges, { hover = null, selection = [], selectedEdge = null, dragging = false } = {}) {
+  if (dragging) return null
+  const node = hover || (selection.length === 1 ? selection[0] : null)
+  if (!node && !selectedEdge) return null
+  return new Set(edges.filter((e) => e.id === selectedEdge || (node && (e.from.node === node || e.to.node === node))).map((e) => e.id))
+}
+
 const worldToScreen = (view, p) => ({ x: p.x * view.zoom + view.x, y: p.y * view.zoom + view.y })
 const screenToWorld = (view, p) => ({ x: (p.x - view.x) / view.zoom, y: (p.y - view.y) / view.zoom })
 
