@@ -13,16 +13,24 @@ Arachne Flow (`arachne-flow`) adds a visual workspace to Hermes Desktop where yo
 
 ## Install
 
-This is the public source repository. The Hermes plugin catalog lists an earlier release under the former id
-`flowcanvas`; for the current version install directly from GitHub with Hermes' plugin manager:
+Arachne Flow is listed in the Hermes plugin catalog as `arachne-flow`. Install the reviewed, pinned release:
+
+```bash
+hermes plugins install arachne-flow --enable
+```
+
+The plugin ID is `arachne-flow`. Later releases arrive with `hermes plugins update arachne-flow` once the catalog
+pin is bumped. To try the newest commit before it is reviewed, install from GitHub instead (append
+`--ref <full-40-character-commit-sha>` for a reproducible install):
 
 ```bash
 hermes plugins install EmotionalThrifty/arachne-flow --enable
 ```
 
-For a reproducible install, append `--ref <full-40-character-commit-sha>` using a commit from this repository.
-The plugin ID is `arachne-flow`; the repository name is `arachne-flow`. Installing by the bare catalog
-name `arachne-flow` is not promised until the catalog entry carries the new id.
+**Coming from `flowcanvas`?** That was the plugin's former id; the catalog no longer offers it. Install
+`arachne-flow` as above and run `hermes plugins remove flowcanvas`. Your data stays in `$HERMES_HOME/plugin-data/flowcanvas/`; with
+Hermes closed, copy everything in it to `$HERMES_HOME/plugin-data/arachne-flow/`. Flows, runs, uploads, saved
+templates and the key that signs file picks and message consents move together, so they keep working.
 
 Restart Hermes Desktop through your normal launcher after installation. **Arachne Flow** appears in the
 sidebar, `/flow` is available in chat, and the agent can use the `flow_*` tools.

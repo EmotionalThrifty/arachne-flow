@@ -87,10 +87,11 @@ class ConfigSchemaTest(unittest.TestCase):
         with open(os.path.join(helpers.ROOT, "README.md"), encoding="utf-8") as fh:
             text = fh.read()
         install = text.split("## Install", 1)[1].split("\n## ", 1)[0]
+        # catalog entry `arachne-flow` (PR #157777); GitHub install stays documented for unreviewed commits
+        self.assertIn("hermes plugins install arachne-flow --enable", install)
         self.assertIn("hermes plugins install EmotionalThrifty/arachne-flow --enable", install)
-        self.assertIn("former id\n`flowcanvas`", install)          # catalog entry: earlier release, old id
         self.assertIn("plugin ID is `arachne-flow`", install)
-        self.assertNotIn("hermes plugins install arachne-flow --enable", install)
+        self.assertIn("Coming from `flowcanvas`?", install)      # old id: how to move existing data
         self.assertIn("provider-independent", install)
         self.assertNotIn("nanogpt", text.lower())                # no provider is required or special-cased
         dev = text.split("## Development", 1)[1].split("\n## ", 1)[0]
